@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Pracuj.pl - Opinie o rekrutacji",
+  "version": "1.8",
+  "description": "Wyświetla i pozwala dodawać opinie o rekrutacji na pracuj.pl oraz pracodawcy.pracuj.pl",
+  "permissions": [
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://*.pracuj.pl/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.pracuj.pl/*"
+      ],
+      "css": ["style.css"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
