@@ -1,4 +1,4 @@
-(function () {
+    (function () {
   'use strict';
 
   try {
@@ -6,13 +6,14 @@
       return;
     }
 
-    // === KONFIGURACJA SUPABASE (Wklej swoje dane tutaj) ===
+    // === KONFIGURACJA SUPABASE (Upewnij się, że masz tu swoje dane) ===
     const SUPABASE_URL = "https://rfxryymvidtqveultajg.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable__cExfmJLYL4yaHh4A2km2Q_hCx4GGdk";
 
-    // Prosta lista silnych wulgaryzmów do filtrowania
-    const BAD_WORDS = ["chuj", "pizda", "kurwa", "pierdol", "jebać", "skurwysyn", "cipa", "huj", "pedał", "ciota"];
+    // Lista wulgaryzmów i ich rdzeni/fragmentów do blokowania
+    const BAD_WORDS = ["chuj", "pizd", "kurw", "pierdol", "jeb", "skurwysyn", "cip", "huj", "pedał", "ciot", "kmiot", "pierd"];
 
+    // Funkcja sprawdzająca czy tekst (lub jego fragment) zawiera wulgaryzm
     function containsBadWords(text) {
       const lower = text.toLowerCase();
       return BAD_WORDS.some(word => lower.includes(word));
@@ -105,11 +106,25 @@
       }
     }
 
+    async function sendReportToDB(reviewId) {
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/reports`, {
+          method: "POST",
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ review_id: reviewId, reason: "Zgłoszenie użytkownika" })
+        });
+      } catch (e) {
+        console.error("Błąd wysyłania zgłoszenia:", e);
+      }
+    }
+
     async function init() {
       if (document.getElementById("pracuj-opinie-widget")) return;
       const employerName = getEmployerName();
-      
-      // Pobierz prawdziwe opinie z bazy dla danej firmy
       let reviews = await fetchReviews(employerName);
       createWidgetUI(employerName, reviews);
     }
@@ -162,7 +177,6 @@
       listContainer.className = "opinie-list";
       body.appendChild(listContainer);
 
-      // Formularz z licznikiem znaków (limit 300)
       const formContainer = document.createElement("div");
       formContainer.id = "opinie-form-container";
       formContainer.className = "opinie-form-container";
@@ -301,6 +315,7 @@
 
           item.querySelector(".flag-report").addEventListener("click", () => {
             dropdown.style.display = "none";
+            sendReportToDB(rev.id);
             alert("Dziękujemy! Zgłoszenie zostało wysłane do weryfikacji.");
           });
 
@@ -310,7 +325,6 @@
             renderReviews();
           });
 
-          // Obsługa głosowania z zapisem w bazie danych
           item.querySelector(".vote-plus").addEventListener("click", () => {
             if (rev.userVote === 'plus') {
               rev.score -= 1;
@@ -407,9 +421,9 @@
 
         const feedbackText = inputFeedback.value.trim();
 
-        // Filtr wulgaryzmów
+        // Blokada wysyłania jeśli wykryto pełne słowo lub jego fragment (np. "kurw")
         if (containsBadWords(feedbackText)) {
-          alert("Twoja opinia zawiera niedozwolone słowa. Prosimy o zachowanie kultury.");
+          alert("Twoja opinia zawiera niedozwolone słowa lub ich fragmenty. Prosimy o zachowanie kultury.");
           return;
         }
 
@@ -428,7 +442,6 @@
 
         const success = await sendReview(newReviewData);
         if (success) {
-          // Pobierz świeżą listę z bazy
           reviews = await fetchReviews(employerName);
           resetForm();
           renderReviews();
