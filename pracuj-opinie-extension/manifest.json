@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Pracuj.pl - Opinie o rekrutacji",
-  "version": "1.8",
-  "description": "Wyświetla i pozwala dodawać opinie o rekrutacji na pracuj.pl oraz pracodawcy.pracuj.pl",
+  "version": "2.5",
+  "description": "Sieciowe opinie o rekrutacji na pracuj.pl z filtrem wulgaryzmów",
   "permissions": [
     "activeTab"
   ],
   "host_permissions": [
-    "https://*.pracuj.pl/*"
+    "https://*.pracuj.pl/*",
+    "https://*.supabase.co/*"
   ],
   "content_scripts": [
     {
