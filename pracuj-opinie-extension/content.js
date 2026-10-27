@@ -2,22 +2,29 @@
   'use strict';
 
   try {
-    // 1. Ignoruj stronę główną portalu
     if (location.hostname === "www.pracuj.pl" && (location.pathname === "/" || location.pathname === "")) {
       return;
     }
 
-    // Funkcja pobierająca wyłącznie nazwę pracodawcy
+    // === KONFIGURACJA SUPABASE (Wklej swoje dane tutaj) ===
+    const SUPABASE_URL = "https://rfxryymvidtqveultajg.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable__cExfmJLYL4yaHh4A2km2Q_hCx4GGdk";
+
+    // Prosta lista silnych wulgaryzmów do filtrowania
+    const BAD_WORDS = ["chuj", "pizda", "kurwa", "pierdol", "jebać", "skurwysyn", "cipa", "huj", "pedał", "ciota"];
+
+    function containsBadWords(text) {
+      const lower = text.toLowerCase();
+      return BAD_WORDS.some(word => lower.includes(word));
+    }
+
     function getEmployerName() {
       let rawName = "";
-
-      // A. Dedykowany atrybut na stronie oferty
       const elAttr = document.querySelector('[data-scroll-id="employer-name"]');
       if (elAttr && elAttr.innerText.trim()) {
         rawName = elAttr.innerText;
       }
 
-      // B. Odczyt ze ścieżki URL (np. /company/nazwa-firmy/...)
       if (!rawName || rawName.trim().length <= 1) {
         const pathSegments = location.pathname.split('/').filter(Boolean);
         const companyIndex = pathSegments.indexOf('company');
@@ -27,7 +34,6 @@
         }
       }
 
-      // C. Odczyt z tytułu strony (druga część po myślniku, pomijając stanowisko)
       if (!rawName || rawName.trim().length <= 1) {
         const titleText = document.title;
         if (titleText) {
@@ -44,51 +50,79 @@
       if (cleaned.length > 0) {
         cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
       }
-      
       return cleaned || "Pracodawca";
     }
 
-    function init() {
-      if (document.getElementById("pracuj-opinie-widget")) return;
-      const employerName = getEmployerName();
-      createWidgetUI(employerName);
+    async function fetchReviews(employerName) {
+      try {
+        const normalized = employerName.toLowerCase().trim();
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/reviews?employer_name=eq.${encodeURIComponent(normalized)}&order=created_at.desc`, {
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+          }
+        });
+        if (!res.ok) return [];
+        return await res.json();
+      } catch (e) {
+        console.error("Błąd pobierania opinii:", e);
+        return [];
+      }
     }
 
-    function createWidgetUI(employerName) {
+    async function sendReview(reviewObj) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/reviews`, {
+          method: "POST",
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+          },
+          body: JSON.stringify(reviewObj)
+        });
+        return res.ok;
+      } catch (e) {
+        console.error("Błąd zapisu opinii:", e);
+        return false;
+      }
+    }
+
+    async function updateScoreInDB(reviewId, newScore) {
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/reviews?id=eq.${reviewId}`, {
+          method: "PATCH",
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ score: newScore })
+        });
+      } catch (e) {
+        console.error("Błąd aktualizacji głosu:", e);
+      }
+    }
+
+    async function init() {
+      if (document.getElementById("pracuj-opinie-widget")) return;
+      const employerName = getEmployerName();
+      
+      // Pobierz prawdziwe opinie z bazy dla danej firmy
+      let reviews = await fetchReviews(employerName);
+      createWidgetUI(employerName, reviews);
+    }
+
+    function createWidgetUI(employerName, reviews) {
       if (document.getElementById("pracuj-opinie-widget")) return;
 
       const currentYear = new Date().getFullYear();
-
-      let mockReviews = [
-        {
-          id: 1,
-          position: "Frontend Developer",
-          time: "2-4 tygodnie",
-          year: currentYear,
-          offered: "tak - zaakceptowałem",
-          feedback: "Bardzo miła atmosfera, pytania głównie z doświadczenia i zadań praktycznych.",
-          score: 3,
-          userVote: null,
-          hidden: false
-        },
-        {
-          id: 2,
-          position: "",
-          time: "1-2 miesiące",
-          year: currentYear - 1,
-          offered: "Wolę nie odpowiadać",
-          feedback: "Proces bardzo długi, 3 etapy rekrutacji. Na koniec otrzymałem jednak szczegółowy feedback.",
-          score: -1,
-          userVote: null,
-          hidden: false
-        }
-      ];
 
       const widget = document.createElement("div");
       widget.id = "pracuj-opinie-widget";
       widget.className = "widget-expanded";
 
-      // Nagłówek (tylko słowo Opinie i nazwa firmy)
       const header = document.createElement("div");
       header.className = "opinie-header";
       header.id = "opinie-toggle-header";
@@ -106,7 +140,7 @@
       const badge = document.createElement("span");
       badge.id = "opinie-badge";
       badge.className = "opinie-badge";
-      badge.innerText = mockReviews.length;
+      badge.innerText = reviews.length;
 
       const minBtn = document.createElement("button");
       minBtn.id = "opinie-minimize-btn";
@@ -119,7 +153,6 @@
       header.appendChild(headerRight);
       widget.appendChild(header);
 
-      // Ciało widgetu
       const body = document.createElement("div");
       body.id = "opinie-body";
       body.className = "opinie-body";
@@ -129,7 +162,7 @@
       listContainer.className = "opinie-list";
       body.appendChild(listContainer);
 
-      // Formularz
+      // Formularz z licznikiem znaków (limit 300)
       const formContainer = document.createElement("div");
       formContainer.id = "opinie-form-container";
       formContainer.className = "opinie-form-container";
@@ -169,8 +202,11 @@
           <option value="Wolę nie odpowiadać">Wolę nie odpowiadać</option>
         </select>
 
-        <label>Jakie wrażenia: *</label>
-        <textarea id="form-feedback" class="form-input" rows="3" placeholder="Opisz swoje wrażenia z rekrutacji..."></textarea>
+        <label>Jakie wrażenia: * (max 300 znaków)</label>
+        <textarea id="form-feedback" class="form-input" rows="3" maxlength="300" placeholder="Opisz swoje wrażenia..."></textarea>
+        <div style="font-size: 10px; color: #666; text-align: right; margin-bottom: 4px;">
+          <span id="char-count">0</span>/300
+        </div>
 
         <div class="form-actions">
           <button id="form-cancel-btn" type="button">Anuluj</button>
@@ -195,9 +231,9 @@
 
       function renderReviews() {
         listContainer.innerHTML = "";
-        badge.innerText = mockReviews.length;
+        badge.innerText = reviews.length;
 
-        if (mockReviews.length === 0) {
+        if (reviews.length === 0) {
           const empty = document.createElement("div");
           empty.className = "opinie-empty";
           empty.innerText = "Brak opinii dla tej firmy. Bądź pierwszy!";
@@ -205,13 +241,13 @@
           return;
         }
 
-        mockReviews.forEach((rev) => {
-          if (rev.hidden) {
+        reviews.forEach((rev) => {
+          if (rev.hiddenLocally) {
             const placeholder = document.createElement("div");
             placeholder.className = "opinie-item-hidden-bar";
             placeholder.title = "Kliknij, aby ponownie wyświetlić opinię";
             placeholder.addEventListener("click", () => {
-              rev.hidden = false;
+              rev.hiddenLocally = false;
               renderReviews();
             });
             listContainer.appendChild(placeholder);
@@ -222,7 +258,8 @@
           item.className = "opinie-item";
 
           const posHtml = rev.position ? `<div class="opinie-item-pos">Stanowisko: <strong>${escapeHtml(rev.position)}</strong></div>` : "";
-          const scoreFormatted = rev.score > 0 ? `+${rev.score}` : `${rev.score}`;
+          const scoreVal = rev.score || 0;
+          const scoreFormatted = scoreVal > 0 ? `+${scoreVal}` : `${scoreVal}`;
           const plusActiveClass = rev.userVote === 'plus' ? 'vote-active' : '';
           const minusActiveClass = rev.userVote === 'minus' ? 'vote-active' : '';
 
@@ -244,7 +281,7 @@
             <div class="opinie-item-status">Oferta: <strong>${escapeHtml(rev.offered)}</strong></div>
             <div class="opinie-item-text">${escapeHtml(rev.feedback)}</div>
             <div class="opinie-item-footer">
-              <div class="opinie-score ${rev.score < 0 ? 'score-negative' : (rev.score > 0 ? 'score-positive' : '')}">
+              <div class="opinie-score ${scoreVal < 0 ? 'score-negative' : (scoreVal > 0 ? 'score-positive' : '')}">
                 Ocena: <span class="score-val">${scoreFormatted}</span>
               </div>
               <div class="opinie-vote-btns">
@@ -258,9 +295,8 @@
           const dropdown = item.querySelector(".opinie-flag-dropdown");
           flagBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            const disp = dropdown.style.display;
             document.querySelectorAll(".opinie-flag-dropdown").forEach(el => el.style.display = "none");
-            dropdown.style.display = disp === "none" ? "block" : "none";
+            dropdown.style.display = dropdown.style.display === "none" ? "block" : "none";
           });
 
           item.querySelector(".flag-report").addEventListener("click", () => {
@@ -270,21 +306,38 @@
 
           item.querySelector(".flag-hide").addEventListener("click", () => {
             dropdown.style.display = "none";
-            rev.hidden = true;
+            rev.hiddenLocally = true;
             renderReviews();
           });
 
+          // Obsługa głosowania z zapisem w bazie danych
           item.querySelector(".vote-plus").addEventListener("click", () => {
-            if (rev.userVote === 'plus') { rev.score -= 1; rev.userVote = null; }
-            else if (rev.userVote === 'minus') { rev.score += 2; rev.userVote = 'plus'; }
-            else { rev.score += 1; rev.userVote = 'plus'; }
+            if (rev.userVote === 'plus') {
+              rev.score -= 1;
+              rev.userVote = null;
+            } else if (rev.userVote === 'minus') {
+              rev.score += 2;
+              rev.userVote = 'plus';
+            } else {
+              rev.score += 1;
+              rev.userVote = 'plus';
+            }
+            updateScoreInDB(rev.id, rev.score);
             renderReviews();
           });
 
           item.querySelector(".vote-minus").addEventListener("click", () => {
-            if (rev.userVote === 'minus') { rev.score += 1; rev.userVote = null; }
-            else if (rev.userVote === 'plus') { rev.score -= 2; rev.userVote = 'minus'; }
-            else { rev.score -= 1; rev.userVote = 'minus'; }
+            if (rev.userVote === 'minus') {
+              rev.score += 1;
+              rev.userVote = null;
+            } else if (rev.userVote === 'plus') {
+              rev.score -= 2;
+              rev.userVote = 'minus';
+            } else {
+              rev.score -= 1;
+              rev.userVote = 'minus';
+            }
+            updateScoreInDB(rev.id, rev.score);
             renderReviews();
           });
 
@@ -296,7 +349,6 @@
         document.querySelectorAll(".opinie-flag-dropdown").forEach(el => el.style.display = "none");
       });
 
-      // Zwijanie / rozwijanie z podmianą eleganckiej strzałki
       header.addEventListener("click", () => {
         if (widget.classList.contains("widget-collapsed")) {
           widget.classList.remove("widget-collapsed");
@@ -314,7 +366,7 @@
         formContainer.style.display = "block";
         listContainer.style.display = "none";
         footer.style.display = "none";
-        widget.style.maxHeight = "620px"; // Powiększenie okna dla formularza
+        widget.style.maxHeight = "620px";
       });
 
       const cancelBtn = document.getElementById("form-cancel-btn");
@@ -323,7 +375,7 @@
         formContainer.style.display = "none";
         listContainer.style.display = "block";
         footer.style.display = "flex";
-        widget.style.maxHeight = "520px"; // Przywrócenie rozmiaru dla listy
+        widget.style.maxHeight = "520px";
       });
 
       const submitBtn = document.getElementById("form-submit-btn");
@@ -332,37 +384,63 @@
       const inputYear = document.getElementById("form-year");
       const inputOffered = document.getElementById("form-offered");
       const inputFeedback = document.getElementById("form-feedback");
+      const charCount = document.getElementById("char-count");
+
+      inputFeedback.addEventListener("input", () => {
+        const len = inputFeedback.value.length;
+        charCount.innerText = len;
+        validateForm();
+      });
 
       function validateForm() {
-        const isValid = inputTime.value !== "" && inputYear.value !== "" && inputOffered.value !== "" && inputFeedback.value.trim() !== "";
+        const textVal = inputFeedback.value.trim();
+        const isValid = inputTime.value !== "" && inputYear.value !== "" && inputOffered.value !== "" && textVal !== "" && textVal.length <= 300;
         submitBtn.disabled = !isValid;
       }
 
-      [inputTime, inputYear, inputOffered, inputFeedback].forEach(el => {
-        el.addEventListener("input", validateForm);
+      [inputTime, inputYear, inputOffered].forEach(el => {
         el.addEventListener("change", validateForm);
       });
 
-      submitBtn.addEventListener("click", () => {
+      submitBtn.addEventListener("click", async () => {
         if (submitBtn.disabled) return;
-        const newReview = {
-          id: Date.now(),
+
+        const feedbackText = inputFeedback.value.trim();
+
+        // Filtr wulgaryzmów
+        if (containsBadWords(feedbackText)) {
+          alert("Twoja opinia zawiera niedozwolone słowa. Prosimy o zachowanie kultury.");
+          return;
+        }
+
+        submitBtn.innerText = "Wysyłanie...";
+        submitBtn.disabled = true;
+
+        const newReviewData = {
+          employer_name: employerName.toLowerCase().trim(),
           position: inputPos.value.trim(),
           time: inputTime.value,
           year: parseInt(inputYear.value),
           offered: inputOffered.value,
-          feedback: inputFeedback.value.trim(),
-          score: 0,
-          userVote: null,
-          hidden: false
+          feedback: feedbackText,
+          score: 0
         };
-        mockReviews.unshift(newReview);
-        resetForm();
-        renderReviews();
-        formContainer.style.display = "none";
-        listContainer.style.display = "block";
-        footer.style.display = "flex";
-        widget.style.maxHeight = "520px"; // Przywrócenie rozmiaru po wysłaniu
+
+        const success = await sendReview(newReviewData);
+        if (success) {
+          // Pobierz świeżą listę z bazy
+          reviews = await fetchReviews(employerName);
+          resetForm();
+          renderReviews();
+          formContainer.style.display = "none";
+          listContainer.style.display = "block";
+          footer.style.display = "flex";
+          widget.style.maxHeight = "520px";
+        } else {
+          alert("Wystąpił błąd podczas wysyłania opinii. Spróbuj ponownie.");
+          submitBtn.innerText = "WYŚLIJ";
+          submitBtn.disabled = false;
+        }
       });
 
       function resetForm() {
@@ -371,6 +449,8 @@
         inputYear.value = "";
         inputOffered.value = "";
         inputFeedback.value = "";
+        charCount.innerText = "0";
+        submitBtn.innerText = "WYŚLIJ";
         submitBtn.disabled = true;
       }
 
@@ -382,7 +462,6 @@
       return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
 
-    // Obsługa przełączania stron SPA
     let lastHref = location.href;
     const observer = new MutationObserver(() => {
       if (location.href !== lastHref) {
