@@ -1,4 +1,4 @@
-    (function () {
+(function () {
   'use strict';
 
   try {
@@ -10,10 +10,32 @@
     const SUPABASE_URL = "https://rfxryymvidtqveultajg.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable__cExfmJLYL4yaHh4A2km2Q_hCx4GGdk";
 
-    // Lista wulgaryzmów i ich rdzeni/fragmentów do blokowania
+    // Unikalne ID klienta zapisane lokalnie w przeglądarce (do śledzenia głosów)
+    function getClientId() {
+      let clientId = localStorage.getItem('pracuj_opinie_client_id');
+      if (!clientId) {
+        clientId = 'client_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+        localStorage.setItem('pracuj_opinie_client_id', clientId);
+      }
+      return clientId;
+    }
+
+    // Pobieranie zapisanych głosów użytkownika z localStorage
+    function getStoredVotes() {
+      try {
+        return JSON.parse(localStorage.getItem('pracuj_opinie_votes') || '{}');
+      } catch (e) {
+        return {};
+      }
+    }
+
+    // Zapisywanie głosu użytkownika do localStorage
+    function saveStoredVotes(votesObj) {
+      localStorage.setItem('pracuj_opinie_votes', JSON.stringify(votesObj));
+    }
+
     const BAD_WORDS = ["chuj", "pizd", "kurw", "pierdol", "jeb", "skurwysyn", "cip", "huj", "pedał", "ciot", "kmiot", "pierd"];
 
-    // Funkcja sprawdzająca czy tekst (lub jego fragment) zawiera wulgaryzm
     function containsBadWords(text) {
       const lower = text.toLowerCase();
       return BAD_WORDS.some(word => lower.includes(word));
@@ -64,7 +86,14 @@
           }
         });
         if (!res.ok) return [];
-        return await res.json();
+        const reviews = await res.json();
+        
+        // Przypisujemy zapisany lokalnie głos użytkownika do każdej opinii
+        const userVotes = getStoredVotes();
+        return reviews.map(rev => ({
+          ...rev,
+          userVote: userVotes[rev.id] || null
+        }));
       } catch (e) {
         console.error("Błąd pobierania opinii:", e);
         return [];
@@ -124,6 +153,7 @@
 
     async function init() {
       if (document.getElementById("pracuj-opinie-widget")) return;
+      getClientId(); // Inicjalizacja ID klienta
       const employerName = getEmployerName();
       let reviews = await fetchReviews(employerName);
       createWidgetUI(employerName, reviews);
@@ -325,17 +355,24 @@
             renderReviews();
           });
 
+          // Obsługa głosowania z trwałą blokadą/zapamiętaniem w localStorage
+          const userVotes = getStoredVotes();
+
           item.querySelector(".vote-plus").addEventListener("click", () => {
             if (rev.userVote === 'plus') {
               rev.score -= 1;
               rev.userVote = null;
+              delete userVotes[rev.id];
             } else if (rev.userVote === 'minus') {
               rev.score += 2;
               rev.userVote = 'plus';
+              userVotes[rev.id] = 'plus';
             } else {
               rev.score += 1;
               rev.userVote = 'plus';
+              userVotes[rev.id] = 'plus';
             }
+            saveStoredVotes(userVotes);
             updateScoreInDB(rev.id, rev.score);
             renderReviews();
           });
@@ -344,13 +381,17 @@
             if (rev.userVote === 'minus') {
               rev.score += 1;
               rev.userVote = null;
+              delete userVotes[rev.id];
             } else if (rev.userVote === 'plus') {
               rev.score -= 2;
               rev.userVote = 'minus';
+              userVotes[rev.id] = 'minus';
             } else {
               rev.score -= 1;
               rev.userVote = 'minus';
+              userVotes[rev.id] = 'minus';
             }
+            saveStoredVotes(userVotes);
             updateScoreInDB(rev.id, rev.score);
             renderReviews();
           });
@@ -421,7 +462,6 @@
 
         const feedbackText = inputFeedback.value.trim();
 
-        // Blokada wysyłania jeśli wykryto pełne słowo lub jego fragment (np. "kurw")
         if (containsBadWords(feedbackText)) {
           alert("Twoja opinia zawiera niedozwolone słowa lub ich fragmenty. Prosimy o zachowanie kultury.");
           return;
