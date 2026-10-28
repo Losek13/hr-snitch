@@ -6,11 +6,10 @@
       return;
     }
 
-    // === KONFIGURACJA SUPABASE (Upewnij się, że masz tu swoje dane) ===
+    // === KONFIGURACJA SUPABASE ===
     const SUPABASE_URL = "https://rfxryymvidtqveultajg.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable__cExfmJLYL4yaHh4A2km2Q_hCx4GGdk";
 
-    // Unikalne ID klienta zapisane lokalnie w przeglądarce (do śledzenia głosów)
     function getClientId() {
       let clientId = localStorage.getItem('pracuj_opinie_client_id');
       if (!clientId) {
@@ -20,7 +19,6 @@
       return clientId;
     }
 
-    // Pobieranie zapisanych głosów użytkownika z localStorage
     function getStoredVotes() {
       try {
         return JSON.parse(localStorage.getItem('pracuj_opinie_votes') || '{}');
@@ -29,7 +27,6 @@
       }
     }
 
-    // Zapisywanie głosu użytkownika do localStorage
     function saveStoredVotes(votesObj) {
       localStorage.setItem('pracuj_opinie_votes', JSON.stringify(votesObj));
     }
@@ -88,7 +85,6 @@
         if (!res.ok) return [];
         const reviews = await res.json();
         
-        // Przypisujemy zapisany lokalnie głos użytkownika do każdej opinii
         const userVotes = getStoredVotes();
         return reviews.map(rev => ({
           ...rev,
@@ -153,7 +149,7 @@
 
     async function init() {
       if (document.getElementById("pracuj-opinie-widget")) return;
-      getClientId(); // Inicjalizacja ID klienta
+      getClientId();
       const employerName = getEmployerName();
       let reviews = await fetchReviews(employerName);
       createWidgetUI(employerName, reviews);
@@ -355,7 +351,6 @@
             renderReviews();
           });
 
-          // Obsługa głosowania z trwałą blokadą/zapamiętaniem w localStorage
           const userVotes = getStoredVotes();
 
           item.querySelector(".vote-plus").addEventListener("click", () => {
@@ -441,6 +436,19 @@
       const inputFeedback = document.getElementById("form-feedback");
       const charCount = document.getElementById("char-count");
 
+      function getRemainingCooldown() {
+        const lastSubmitTime = localStorage.getItem('pracuj_opinie_last_submit');
+        if (!lastSubmitTime) return 0;
+        
+        const cooldownTime = 60 * 1000;
+        const elapsed = Date.now() - parseInt(lastSubmitTime, 10);
+        
+        if (elapsed < cooldownTime) {
+          return Math.ceil((cooldownTime - elapsed) / 1000);
+        }
+        return 0;
+      }
+
       inputFeedback.addEventListener("input", () => {
         const len = inputFeedback.value.length;
         charCount.innerText = len;
@@ -449,9 +457,29 @@
 
       function validateForm() {
         const textVal = inputFeedback.value.trim();
-        const isValid = inputTime.value !== "" && inputYear.value !== "" && inputOffered.value !== "" && textVal !== "" && textVal.length <= 300;
+        const cooldownSecs = getRemainingCooldown();
+        
+        const isValid = cooldownSecs === 0 && 
+                        inputTime.value !== "" && 
+                        inputYear.value !== "" && 
+                        inputOffered.value !== "" && 
+                        textVal !== "" && 
+                        textVal.length <= 300;
+                        
         submitBtn.disabled = !isValid;
+        
+        if (cooldownSecs > 0) {
+          submitBtn.innerText = `Odczekaj ${cooldownSecs}s`;
+        } else if (submitBtn.innerText.startsWith("Odczekaj")) {
+          submitBtn.innerText = "WYŚLIJ";
+        }
       }
+
+      setInterval(() => {
+        if (formContainer.style.display !== "none") {
+          validateForm();
+        }
+      }, 1000);
 
       [inputTime, inputYear, inputOffered].forEach(el => {
         el.addEventListener("change", validateForm);
@@ -482,6 +510,8 @@
 
         const success = await sendReview(newReviewData);
         if (success) {
+          localStorage.setItem('pracuj_opinie_last_submit', Date.now().toString());
+          
           reviews = await fetchReviews(employerName);
           resetForm();
           renderReviews();
