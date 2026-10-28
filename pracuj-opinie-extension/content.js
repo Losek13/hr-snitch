@@ -34,6 +34,7 @@
     const BAD_WORDS = ["chuj", "pizd", "kurw", "pierdol", "jeb", "skurwysyn", "cip", "huj", "pedał", "ciot", "kmiot", "pierd"];
 
     function containsBadWords(text) {
+      if (!text) return false;
       const lower = text.toLowerCase();
       return BAD_WORDS.some(word => lower.includes(word));
     }
@@ -99,7 +100,7 @@
         if (!res.ok) return [];
         const reviews = await res.json();
         
-        const userVotes = getStoredVotes();
+        const userVotes = await fetchUserVotesFromDB();
         return reviews.map(rev => ({
           ...rev,
           userVote: userVotes[rev.id] || null
@@ -130,52 +131,62 @@
     }
 
     async function updateReviewInDB(reviewId, updateObj) {
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/reviews?id=eq.${reviewId}`, {
-      method: "PATCH",
-      headers: {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal"
-      },
-      body: JSON.stringify(updateObj)
-    });
-    return res.ok;
-  } catch (e) {
-    console.error("Błąd aktualizacji opinii:", e);
-    return false;
-  }
-}
-
-    async function deleteReviewFromDB(reviewId) {
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/reviews?id=eq.${reviewId}`, {
-      method: "DELETE",
-      headers: {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        "Prefer": "return=minimal"
-      }
-    });
-    return res.ok;
-  } catch (e) {
-    console.error("Błąd usuwania opinii:", e);
-    return false;
-  }
-}
-
-    async function updateScoreInDB(reviewId, newScore) {
       try {
-        await fetch(`${SUPABASE_URL}/rest/v1/reviews?id=eq.${reviewId}`, {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/reviews?id=eq.${reviewId}`, {
           method: "PATCH",
           headers: {
             "apikey": SUPABASE_ANON_KEY,
             "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "x-client-id": getClientId(),
+            "Prefer": "return=minimal"
           },
-          body: JSON.stringify({ score: newScore })
+          body: JSON.stringify(updateObj)
         });
+        return res.ok;
+      } catch (e) {
+        console.error("Błąd aktualizacji opinii:", e);
+        return false;
+      }
+    }
+
+    async function deleteReviewFromDB(reviewId) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/reviews?id=eq.${reviewId}`, {
+          method: "DELETE",
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            "x-client-id": getClientId(),
+            "Prefer": "return=minimal"
+          }
+        });
+        return res.ok;
+      } catch (e) {
+        console.error("Błąd usuwania opinii:", e);
+        return false;
+      }
+    }
+
+    async function updateScoreInDB(reviewId, delta) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/vote_review`, {
+          method: "POST",
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            "Content-Type": "application/json",
+            "x-client-id": getClientId()
+          },
+          body: JSON.stringify({
+            review_id: reviewId,
+            delta: delta
+          })
+        });
+
+        if (!res.ok) {
+          console.warn("Głosowanie odrzucone (np. próba głosu na własną opinię).");
+        }
       } catch (e) {
         console.error("Błąd aktualizacji głosu:", e);
       }
@@ -213,7 +224,7 @@
 
       const currentYear = new Date().getFullYear();
       let currentSortMode = "newest";
-      let editingReviewId = null; // Przechowuje ID opinii, jeśli aktualnie ją edytujemy
+      let editingReviewId = null;
 
       const widget = document.createElement("div");
       widget.id = "pracuj-opinie-widget";
@@ -440,7 +451,6 @@
 
           const isOwner = rev.client_id === currentClient;
 
-          // Budujemy menu rozwijane pod flagą
           let dropdownOptions = '<div class="flag-option flag-report">Zgłoś</div>' +
                                 '<div class="flag-option flag-hide">Ukryj dla mnie</div>';
           
@@ -449,6 +459,7 @@
                                '<div class="flag-option flag-delete" style="color: #dc3545; font-weight: bold;">Usuń</div>';
           }
 
+          // 1. NAJPIERW WSTAWIANY JEST HTML
           item.innerHTML = 
             '<div class="opinie-item-header">' +
               '<div class="opinie-item-meta">' +
@@ -476,6 +487,21 @@
               '</div>' +
             '</div>';
 
+          // 2. POBRANIE PRZYCISKÓW PO UTWORZENIU DOM
+          const plusBtn = item.querySelector(".vote-plus");
+          const minusBtn = item.querySelector(".vote-minus");
+
+          if (isOwner) {
+            plusBtn.disabled = true;
+            minusBtn.disabled = true;
+            plusBtn.style.opacity = "0.4";
+            minusBtn.style.opacity = "0.4";
+            plusBtn.style.cursor = "not-allowed";
+            minusBtn.style.cursor = "not-allowed";
+            plusBtn.title = "Nie możesz głosować na własną opinię";
+            minusBtn.title = "Nie możesz głosować na własną opinię";
+          }
+
           const flagBtn = item.querySelector(".opinie-flag-btn");
           const dropdown = item.querySelector(".opinie-flag-dropdown");
           flagBtn.addEventListener("click", (e) => {
@@ -501,7 +527,6 @@
               dropdown.style.display = "none";
               editingReviewId = rev.id;
               
-              // Wypełniamy formularz danymi opinii do edycji
               inputPos.value = rev.position || "";
               inputTime.value = rev.time || "";
               inputYear.value = rev.year || "";
@@ -536,41 +561,51 @@
 
           const userVotes = getStoredVotes();
 
-          item.querySelector(".vote-plus").addEventListener("click", () => {
+          plusBtn.addEventListener("click", async () => {
+            let delta = 0;
             if (rev.userVote === 'plus') {
               rev.score -= 1;
+              delta = -1;
               rev.userVote = null;
               delete userVotes[rev.id];
             } else if (rev.userVote === 'minus') {
               rev.score += 2;
+              delta = 2;
               rev.userVote = 'plus';
               userVotes[rev.id] = 'plus';
             } else {
               rev.score += 1;
+              delta = 1;
               rev.userVote = 'plus';
               userVotes[rev.id] = 'plus';
             }
             saveStoredVotes(userVotes);
-            updateScoreInDB(rev.id, rev.score);
+            await updateScoreInDB(rev.id, delta);
+            reviews = await fetchReviews(employerName);
             renderReviews();
           });
 
-          item.querySelector(".vote-minus").addEventListener("click", () => {
+          minusBtn.addEventListener("click", async () => {
+            let delta = 0;
             if (rev.userVote === 'minus') {
               rev.score += 1;
+              delta = 1;
               rev.userVote = null;
               delete userVotes[rev.id];
             } else if (rev.userVote === 'plus') {
               rev.score -= 2;
+              delta = -2;
               rev.userVote = 'minus';
               userVotes[rev.id] = 'minus';
             } else {
               rev.score -= 1;
+              delta = -1;
               rev.userVote = 'minus';
               userVotes[rev.id] = 'minus';
             }
             saveStoredVotes(userVotes);
-            updateScoreInDB(rev.id, rev.score);
+            await updateScoreInDB(rev.id, delta);
+            reviews = await fetchReviews(employerName);
             renderReviews();
           });
 
@@ -596,7 +631,7 @@
 
       addBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        editingReviewId = null; // Tryb dodawania nowej
+        editingReviewId = null;
         resetForm();
         document.getElementById("form-main-title").innerText = "Dodaj opinię o rekrutacji";
         submitBtn.innerText = "WYŚLIJ";
@@ -621,7 +656,7 @@
       const charCount = document.getElementById("char-count");
 
       function getRemainingCooldown() {
-        if (editingReviewId) return 0; // Brak cooldownu przy edycji własnej opinii
+        if (editingReviewId) return 0;
         const lastSubmitTime = localStorage.getItem('pracuj_opinie_last_submit');
         if (!lastSubmitTime) return 0;
         
@@ -671,23 +706,22 @@
       });
 
       submitBtn.addEventListener("click", async () => {
-  if (submitBtn.disabled) return;
+        if (submitBtn.disabled) return;
 
-  const feedbackText = inputFeedback.value.trim();
-  const positionText = inputPos.value.trim();
+        const feedbackText = inputFeedback.value.trim();
+        const positionText = inputPos.value.trim();
 
-  if (containsBadWords(feedbackText) || containsBadWords(positionText)) {
-    alert("Twoja opinia lub nazwa stanowiska zawiera niedozwolone słowa. Prosimy o zachowanie kultury.");
-    return;
-  }
+        if (containsBadWords(feedbackText) || containsBadWords(positionText)) {
+          alert("Twoja opinia lub nazwa stanowiska zawiera niedozwolone słowa. Prosimy o zachowanie kultury.");
+          return;
+        }
 
-  submitBtn.innerText = "Zapisywanie...";
-  submitBtn.disabled = true;
+        submitBtn.innerText = "Zapisywanie...";
+        submitBtn.disabled = true;
 
         let success = false;
 
         if (editingReviewId) {
-          // Tryb edycji
           const updateData = {
             position: inputPos.value.trim(),
             time: inputTime.value,
@@ -697,7 +731,6 @@
           };
           success = await updateReviewInDB(editingReviewId, updateData);
         } else {
-          // Tryb dodawania nowej
           const newReviewData = {
             employer_name: employerName.toLowerCase().trim(),
             position: inputPos.value.trim(),
@@ -715,10 +748,16 @@
         }
 
         if (success) {
+          if (!editingReviewId) {
+            localStorage.setItem('pracuj_opinie_last_submit', Date.now().toString());
+          }
+          
           reviews = await fetchReviews(employerName);
+          
           resetForm();
           editingReviewId = null;
           renderReviews();
+
           formContainer.style.display = "none";
           listContainer.style.display = "block";
           sortContainer.style.display = "flex";
@@ -770,4 +809,28 @@
   } catch (err) {
     console.error("Błąd we wtyczce Pracuj Opinie:", err);
   }
+  
+  async function fetchUserVotesFromDB() {
+  try {
+    const clientId = getClientId();
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/votes?client_id=eq.${clientId}&select=review_id,vote_type`, {
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+      }
+    });
+    if (!res.ok) return {};
+    const votesData = await res.json();
+    
+    // Zamieniamy tablicę z bazy na obiekt { review_id: 'plus'/'minus' }
+    const votesObj = {};
+    votesData.forEach(v => {
+      votesObj[v.review_id] = v.vote_type;
+    });
+    return votesObj;
+  } catch (e) {
+    console.error("Błąd pobierania głosów z bazy:", e);
+    return {};
+  }
+}
 })();
