@@ -38,6 +38,20 @@
       return BAD_WORDS.some(word => lower.includes(word));
     }
 
+    function formatDateTime(isoString) {
+      if (!isoString) return "";
+      const date = new Date(isoString);
+      if (isNaN(date.getTime())) return "";
+
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+
+      return `${day}.${month}.${year} ${hours}:${minutes}`;
+    }
+
     function getEmployerName() {
       let rawName = "";
       const elAttr = document.querySelector('[data-scroll-id="employer-name"]');
@@ -148,7 +162,10 @@
     }
 
     async function init() {
-      if (document.getElementById("pracuj-opinie-widget")) return;
+      const existingWidget = document.getElementById("pracuj-opinie-widget");
+      if (existingWidget) {
+        existingWidget.remove();
+      }
       getClientId();
       const employerName = getEmployerName();
       let reviews = await fetchReviews(employerName);
@@ -159,6 +176,7 @@
       if (document.getElementById("pracuj-opinie-widget")) return;
 
       const currentYear = new Date().getFullYear();
+      let currentSortMode = "newest";
 
       const widget = document.createElement("div");
       widget.id = "pracuj-opinie-widget";
@@ -172,7 +190,7 @@
       headerLeft.className = "opinie-header-left";
       const titleSpan = document.createElement("span");
       titleSpan.className = "opinie-title";
-      titleSpan.innerHTML = `Opinie: <strong>${escapeHtml(employerName)}</strong>`;
+      titleSpan.innerHTML = "Opinie: <strong>" + escapeHtml(employerName) + "</strong>";
       headerLeft.appendChild(titleSpan);
 
       const headerRight = document.createElement("div");
@@ -198,6 +216,16 @@
       body.id = "opinie-body";
       body.className = "opinie-body";
 
+      const sortContainer = document.createElement("div");
+      sortContainer.className = "opinie-sort-container";
+      sortContainer.innerHTML = 
+        '<span class="opinie-sort-label">Sortuj:</span>' +
+        '<div class="opinie-tabs">' +
+          '<button type="button" class="opinie-tab-btn active" data-sort="newest">Od najnowszych</button>' +
+          '<button type="button" class="opinie-tab-btn" data-sort="best">Od najlepszych</button>' +
+        '</div>';
+      body.appendChild(sortContainer);
+
       const listContainer = document.createElement("div");
       listContainer.id = "opinie-list";
       listContainer.className = "opinie-list";
@@ -208,51 +236,93 @@
       formContainer.className = "opinie-form-container";
       formContainer.style.display = "none";
 
-      formContainer.innerHTML = `
-        <h4>Dodaj opinię o rekrutacji</h4>
-        <label>Nazwa stanowiska (opcjonalnie):</label>
-        <input type="text" id="form-position" class="form-input" placeholder="To pole może zostać puste" />
+      const formTitle = document.createElement("h4");
+      formTitle.innerText = "Dodaj opinię o rekrutacji";
+      formContainer.appendChild(formTitle);
 
-        <label>Czas rekrutacji: *</label>
-        <select id="form-time" class="form-input">
-          <option value="">-- Wybierz --</option>
-          <option value="poniżej 1 tygodnia">poniżej 1 tygodnia</option>
-          <option value="2-4 tygodnie">2-4 tygodnie</option>
-          <option value="1-2 miesiące">1-2 miesiące</option>
-          <option value="powyżej 2 miesięcy">powyżej 2 miesięcy</option>
-        </select>
+      const createLabel = (text) => {
+        const lbl = document.createElement("label");
+        lbl.innerText = text;
+        return lbl;
+      };
 
-        <label>Rok rekrutacji: *</label>
-        <select id="form-year" class="form-input">
-          <option value="">-- Wybierz rok --</option>
-          <option value="${currentYear}">${currentYear}</option>
-          <option value="${currentYear-1}">${currentYear-1}</option>
-          <option value="${currentYear-2}">${currentYear-2}</option>
-          <option value="${currentYear-3}">${currentYear-3}</option>
-          <option value="${currentYear-4}">${currentYear-4}</option>
-        </select>
+      formContainer.appendChild(createLabel("Nazwa stanowiska (opcjonalnie):"));
+      const inputPos = document.createElement("input");
+      inputPos.type = "text";
+      inputPos.id = "form-position";
+      inputPos.className = "form-input";
+      inputPos.placeholder = "To pole może zostać puste";
+      formContainer.appendChild(inputPos);
 
-        <label>Czy zaoferowano pracę? *</label>
-        <select id="form-offered" class="form-input">
-          <option value="">-- Wybierz --</option>
-          <option value="tak - zaakceptowałem">tak - zaakceptowałem</option>
-          <option value="tak - odrzuciłem">tak - odrzuciłem</option>
-          <option value="nie zaoferowano">nie zaoferowano</option>
-          <option value="brak odpowiedzi">brak odpowiedzi</option>
-          <option value="Wolę nie odpowiadać">Wolę nie odpowiadać</option>
-        </select>
+      formContainer.appendChild(createLabel("Czas rekrutacji: *"));
+      const inputTime = document.createElement("select");
+      inputTime.id = "form-time";
+      inputTime.className = "form-input";
+      ["-- Wybierz --", "poniżej 1 tygodnia", "2-4 tygodnie", "1-2 miesiące", "powyżej 2 miesięcy"].forEach((opt, idx) => {
+        const option = document.createElement("option");
+        option.value = idx === 0 ? "" : opt;
+        option.innerText = opt;
+        inputTime.appendChild(option);
+      });
+      formContainer.appendChild(inputTime);
 
-        <label>Jakie wrażenia: * (max 300 znaków)</label>
-        <textarea id="form-feedback" class="form-input" rows="3" maxlength="300" placeholder="Opisz swoje wrażenia..."></textarea>
-        <div style="font-size: 10px; color: #666; text-align: right; margin-bottom: 4px;">
-          <span id="char-count">0</span>/300
-        </div>
+      formContainer.appendChild(createLabel("Rok rekrutacji: *"));
+      const inputYear = document.createElement("select");
+      inputYear.id = "form-year";
+      inputYear.className = "form-input";
+      const defaultYearOpt = document.createElement("option");
+      defaultYearOpt.value = "";
+      defaultYearOpt.innerText = "-- Wybierz rok --";
+      inputYear.appendChild(defaultYearOpt);
+      for (let y = currentYear; y >= currentYear - 4; y--) {
+        const option = document.createElement("option");
+        option.value = y;
+        option.innerText = y;
+        inputYear.appendChild(option);
+      }
+      formContainer.appendChild(inputYear);
 
-        <div class="form-actions">
-          <button id="form-cancel-btn" type="button">Anuluj</button>
-          <button id="form-submit-btn" type="button" disabled>WYŚLIJ</button>
-        </div>
-      `;
+      formContainer.appendChild(createLabel("Czy zaoferowano pracę? *"));
+      const inputOffered = document.createElement("select");
+      inputOffered.id = "form-offered";
+      inputOffered.className = "form-input";
+      ["-- Wybierz --", "tak - zaakceptowałem", "tak - odrzuciłem", "nie zaoferowano", "brak odpowiedzi", "Wolę nie odpowiadać"].forEach((opt, idx) => {
+        const option = document.createElement("option");
+        option.value = idx === 0 ? "" : opt;
+        option.innerText = opt;
+        inputOffered.appendChild(option);
+      });
+      formContainer.appendChild(inputOffered);
+
+      formContainer.appendChild(createLabel("Jakie wrażenia: * (max 300 znaków)"));
+      const inputFeedback = document.createElement("textarea");
+      inputFeedback.id = "form-feedback";
+      inputFeedback.className = "form-input";
+      inputFeedback.rows = 3;
+      inputFeedback.maxLength = 300;
+      inputFeedback.placeholder = "Opisz swoje wrażenia...";
+      formContainer.appendChild(inputFeedback);
+
+      const counterDiv = document.createElement("div");
+      counterDiv.style.cssText = "font-size: 10px; color: #666; text-align: right; margin-bottom: 4px;";
+      counterDiv.innerHTML = '<span id="char-count">0</span>/300';
+      formContainer.appendChild(counterDiv);
+
+      const formActions = document.createElement("div");
+      formActions.className = "form-actions";
+      const cancelBtn = document.createElement("button");
+      cancelBtn.id = "form-cancel-btn";
+      cancelBtn.type = "button";
+      cancelBtn.innerText = "Anuluj";
+      const submitBtn = document.createElement("button");
+      submitBtn.id = "form-submit-btn";
+      submitBtn.type = "button";
+      submitBtn.disabled = true;
+      submitBtn.innerText = "WYŚLIJ";
+      formActions.appendChild(cancelBtn);
+      formActions.appendChild(submitBtn);
+      formContainer.appendChild(formActions);
+
       body.appendChild(formContainer);
 
       const footer = document.createElement("div");
@@ -269,6 +339,16 @@
       widget.appendChild(body);
       document.body.appendChild(widget);
 
+      const tabButtons = sortContainer.querySelectorAll(".opinie-tab-btn");
+      tabButtons.forEach(btn => {
+        btn.addEventListener("click", () => {
+          tabButtons.forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          currentSortMode = btn.getAttribute("data-sort");
+          renderReviews();
+        });
+      });
+
       function renderReviews() {
         listContainer.innerHTML = "";
         badge.innerText = reviews.length;
@@ -281,7 +361,14 @@
           return;
         }
 
-        reviews.forEach((rev) => {
+        let sortedReviews = [...reviews];
+        if (currentSortMode === "best") {
+          sortedReviews.sort((a, b) => (b.score || 0) - (a.score || 0));
+        } else {
+          sortedReviews.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        }
+
+        sortedReviews.forEach((rev) => {
           if (rev.hiddenLocally) {
             const placeholder = document.createElement("div");
             placeholder.className = "opinie-item-hidden-bar";
@@ -297,39 +384,47 @@
           const item = document.createElement("div");
           item.className = "opinie-item";
 
-          const posHtml = rev.position ? `<div class="opinie-item-pos">Stanowisko: <strong>${escapeHtml(rev.position)}</strong></div>` : "";
+          const posHtml = rev.position ? '<div class="opinie-item-pos">Stanowisko: <strong>' + escapeHtml(rev.position) + '</strong></div>' : "";
           const scoreVal = rev.score || 0;
-          const scoreFormatted = scoreVal > 0 ? `+${scoreVal}` : `${scoreVal}`;
+          const scoreFormatted = scoreVal > 0 ? "+" + scoreVal : "" + scoreVal;
           const plusActiveClass = rev.userVote === 'plus' ? 'vote-active' : '';
           const minusActiveClass = rev.userVote === 'minus' ? 'vote-active' : '';
+          const formattedDate = formatDateTime(rev.created_at);
 
-          item.innerHTML = `
-            <div class="opinie-item-header">
-              <div class="opinie-item-meta">
-                <span class="meta-element">📅 <strong>${rev.year}</strong></span> 
-                <span class="meta-element">⏱ <strong>${escapeHtml(rev.time)}</strong></span>
-              </div>
-              <div class="opinie-flag-container">
-                <button class="opinie-flag-btn" title="Opcje opinii">🏳</button>
-                <div class="opinie-flag-dropdown" style="display: none;">
-                  <div class="flag-option flag-report">Zgłoś</div>
-                  <div class="flag-option flag-hide">Ukryj dla mnie</div>
-                </div>
-              </div>
-            </div>
-            ${posHtml}
-            <div class="opinie-item-status">Oferta: <strong>${escapeHtml(rev.offered)}</strong></div>
-            <div class="opinie-item-text">${escapeHtml(rev.feedback)}</div>
-            <div class="opinie-item-footer">
-              <div class="opinie-score ${scoreVal < 0 ? 'score-negative' : (scoreVal > 0 ? 'score-positive' : '')}">
-                Ocena: <span class="score-val">${scoreFormatted}</span>
-              </div>
-              <div class="opinie-vote-btns">
-                <button class="btn-vote vote-plus ${plusActiveClass}" title="Głosuj na plus">+</button>
-                <button class="btn-vote vote-minus ${minusActiveClass}" title="Głosuj na minus">-</button>
-              </div>
-            </div>
-          `;
+          let scoreClass = "";
+          if (scoreVal < 0) {
+            scoreClass = "score-negative";
+          } else if (scoreVal > 0) {
+            scoreClass = "score-positive";
+          }
+
+          item.innerHTML = 
+            '<div class="opinie-item-header">' +
+              '<div class="opinie-item-meta">' +
+                '<span class="meta-element" title="Rok rekrutacji">📅 <strong>' + rev.year + '</strong></span> ' +
+                '<span class="meta-element" title="Czas rekrutacji">⏱ <strong>' + escapeHtml(rev.time) + '</strong></span>' +
+                (formattedDate ? '<span class="meta-element" title="Data dodania opinii" style="color: #888; font-size: 10px;">🕒 ' + formattedDate + '</span>' : '') +
+              '</div>' +
+              '<div class="opinie-flag-container">' +
+                '<button class="opinie-flag-btn" title="Opcje opinii">🏳</button>' +
+                '<div class="opinie-flag-dropdown" style="display: none;">' +
+                  '<div class="flag-option flag-report">Zgłoś</div>' +
+                  '<div class="flag-option flag-hide">Ukryj dla mnie</div>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            posHtml +
+            '<div class="opinie-item-status">Oferta: <strong>' + escapeHtml(rev.offered) + '</strong></div>' +
+            '<div class="opinie-item-text">' + escapeHtml(rev.feedback) + '</div>' +
+            '<div class="opinie-item-footer">' +
+              '<div class="opinie-score ' + scoreClass + '">' +
+                'Ocena: <span class="score-val">' + scoreFormatted + '</span>' +
+              '</div>' +
+              '<div class="opinie-vote-btns">' +
+                '<button class="btn-vote vote-plus ' + plusActiveClass + '" title="Głosuj na plus">+</button>' +
+                '<button class="btn-vote vote-minus ' + minusActiveClass + '" title="Głosuj na minus">-</button>' +
+              '</div>' +
+            '</div>';
 
           const flagBtn = item.querySelector(".opinie-flag-btn");
           const dropdown = item.querySelector(".opinie-flag-dropdown");
@@ -415,25 +510,20 @@
         e.stopPropagation();
         formContainer.style.display = "block";
         listContainer.style.display = "none";
+        sortContainer.style.display = "none";
         footer.style.display = "none";
         widget.style.maxHeight = "620px";
       });
 
-      const cancelBtn = document.getElementById("form-cancel-btn");
       cancelBtn.addEventListener("click", () => {
         resetForm();
         formContainer.style.display = "none";
         listContainer.style.display = "block";
+        sortContainer.style.display = "flex";
         footer.style.display = "flex";
         widget.style.maxHeight = "520px";
       });
 
-      const submitBtn = document.getElementById("form-submit-btn");
-      const inputPos = document.getElementById("form-position");
-      const inputTime = document.getElementById("form-time");
-      const inputYear = document.getElementById("form-year");
-      const inputOffered = document.getElementById("form-offered");
-      const inputFeedback = document.getElementById("form-feedback");
       const charCount = document.getElementById("char-count");
 
       function getRemainingCooldown() {
@@ -469,7 +559,7 @@
         submitBtn.disabled = !isValid;
         
         if (cooldownSecs > 0) {
-          submitBtn.innerText = `Odczekaj ${cooldownSecs}s`;
+          submitBtn.innerText = "Odczekaj " + cooldownSecs + "s";
         } else if (submitBtn.innerText.startsWith("Odczekaj")) {
           submitBtn.innerText = "WYŚLIJ";
         }
@@ -517,6 +607,7 @@
           renderReviews();
           formContainer.style.display = "none";
           listContainer.style.display = "block";
+          sortContainer.style.display = "flex";
           footer.style.display = "flex";
           widget.style.maxHeight = "520px";
         } else {
