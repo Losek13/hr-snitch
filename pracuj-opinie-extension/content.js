@@ -54,39 +54,46 @@
     }
 
     function getEmployerName() {
-      let rawName = "";
-      const elAttr = document.querySelector('[data-scroll-id="employer-name"]');
-      if (elAttr && elAttr.innerText.trim()) {
-        rawName = elAttr.innerText;
-      }
+  let rawName = "";
+  const elAttr = document.querySelector('[data-scroll-id="employer-name"]');
+  if (elAttr && elAttr.innerText.trim()) {
+    rawName = elAttr.innerText;
+  }
 
-      if (!rawName || rawName.trim().length <= 1) {
-        const pathSegments = location.pathname.split('/').filter(Boolean);
-        const companyIndex = pathSegments.indexOf('company');
-        if (companyIndex !== -1 && pathSegments[companyIndex + 1]) {
-          let urlSlug = pathSegments[companyIndex + 1];
-          rawName = urlSlug.replace(/-/g, ' ');
-        }
-      }
-
-      if (!rawName || rawName.trim().length <= 1) {
-        const titleText = document.title;
-        if (titleText) {
-          const parts = titleText.split(/[-–|]/).map(p => p.trim());
-          if (parts.length >= 2) {
-            rawName = parts[1];
-          } else if (parts.length === 1) {
-            rawName = parts[0];
-          }
-        }
-      }
-
-      let cleaned = (rawName || "Pracodawca").replace(/O firmie/gi, "").trim();
-      if (cleaned.length > 0) {
-        cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
-      }
-      return cleaned || "Pracodawca";
+  if (!rawName || rawName.trim().length <= 1) {
+    const pathSegments = location.pathname.split('/').filter(Boolean);
+    const companyIndex = pathSegments.indexOf('company');
+    if (companyIndex !== -1 && pathSegments[companyIndex + 1]) {
+      let urlSlug = pathSegments[companyIndex + 1];
+      rawName = urlSlug.replace(/-/g, ' ');
     }
+  }
+
+  if (!rawName || rawName.trim().length <= 1) {
+    const titleText = document.title;
+    if (titleText) {
+      const parts = titleText.split(/[-–|]/).map(p => p.trim());
+      if (parts.length >= 2) {
+        rawName = parts[1];
+      } else if (parts.length === 1) {
+        rawName = parts[0];
+      }
+    }
+  }
+
+  let cleaned = (rawName || "").replace(/O firmie/gi, "").trim();
+
+  // WYKLUCZENIA: Czyszczenie słów systemowych i podstron użytkownika
+  const blacklistedNames = ["konto", "pracuj.pl", "pracuj", "moje aplikacje", "profil", "ustawienia", "pracodawca"];
+  if (blacklistedNames.includes(cleaned.toLowerCase())) {
+    return null; // Zwracamy null, by wtyczka wiedziała, że to nie jest strona pracodawcy
+  }
+
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned || null;
+}
 
     async function fetchReviews(employerName) {
       try {
@@ -210,14 +217,18 @@
 
     async function init() {
       const existingWidget = document.getElementById("pracuj-opinie-widget");
-      if (existingWidget) {
-        existingWidget.remove();
-      }
-      getClientId();
-      const employerName = getEmployerName();
-      let reviews = await fetchReviews(employerName);
-      createWidgetUI(employerName, reviews);
-    }
+  if (existingWidget) {
+    existingWidget.remove();
+  }
+
+  const employerName = getEmployerName();
+  // Jeśli nie wykryto konkretnego pracodawcy (np. na podstronach systemowych), nie ładujemy widgetu
+  if (!employerName) return;
+
+  getClientId();
+  let reviews = await fetchReviews(employerName);
+  createWidgetUI(employerName, reviews);
+}
 
     function createWidgetUI(employerName, reviews) {
       if (document.getElementById("pracuj-opinie-widget")) return;
@@ -796,9 +807,11 @@
         const old = document.getElementById("pracuj-opinie-widget");
         if (old) old.remove();
 
-        if (location.hostname === "www.pracuj.pl" && (location.pathname === "/" || location.pathname === "")) {
-          return;
-        }
+        if (location.hostname === "www.pracuj.pl") {
+  if (location.pathname === "/" || location.pathname === "" || location.pathname.startsWith("/konto")) {
+    return;
+  }
+}
         setTimeout(init, 500);
       }
     });
