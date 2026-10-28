@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Donosiciel - Opinie o rekrutacji",
+  "name": "Donosiciel - Opinie o procesach rekrutacji",
   "version": "2.5",
-  "description": "Sieciowe opinie o rekrutacji na pracuj.pl - od aplikujących dla aplikujących.",
+  "description": "Opinie użytkowników o procesach rekrutacji na pracuj.pl - od aplikujących dla aplikujących.",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
