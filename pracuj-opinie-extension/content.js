@@ -129,6 +129,42 @@
       }
     }
 
+    async function updateReviewInDB(reviewId, updateObj) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/reviews?id=eq.${reviewId}`, {
+      method: "PATCH",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+      },
+      body: JSON.stringify(updateObj)
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("Błąd aktualizacji opinii:", e);
+    return false;
+  }
+}
+
+    async function deleteReviewFromDB(reviewId) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/reviews?id=eq.${reviewId}`, {
+      method: "DELETE",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        "Prefer": "return=minimal"
+      }
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("Błąd usuwania opinii:", e);
+    return false;
+  }
+}
+
     async function updateScoreInDB(reviewId, newScore) {
       try {
         await fetch(`${SUPABASE_URL}/rest/v1/reviews?id=eq.${reviewId}`, {
@@ -177,6 +213,7 @@
 
       const currentYear = new Date().getFullYear();
       let currentSortMode = "newest";
+      let editingReviewId = null; // Przechowuje ID opinii, jeśli aktualnie ją edytujemy
 
       const widget = document.createElement("div");
       widget.id = "pracuj-opinie-widget";
@@ -237,6 +274,7 @@
       formContainer.style.display = "none";
 
       const formTitle = document.createElement("h4");
+      formTitle.id = "form-main-title";
       formTitle.innerText = "Dodaj opinię o rekrutacji";
       formContainer.appendChild(formTitle);
 
@@ -368,6 +406,8 @@
           sortedReviews.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
         }
 
+        const currentClient = getClientId();
+
         sortedReviews.forEach((rev) => {
           if (rev.hiddenLocally) {
             const placeholder = document.createElement("div");
@@ -398,6 +438,17 @@
             scoreClass = "score-positive";
           }
 
+          const isOwner = rev.client_id === currentClient;
+
+          // Budujemy menu rozwijane pod flagą
+          let dropdownOptions = '<div class="flag-option flag-report">Zgłoś</div>' +
+                                '<div class="flag-option flag-hide">Ukryj dla mnie</div>';
+          
+          if (isOwner) {
+            dropdownOptions += '<div class="flag-option flag-edit" style="color: #8b0020; font-weight: bold;">Edytuj</div>' +
+                               '<div class="flag-option flag-delete" style="color: #dc3545; font-weight: bold;">Usuń</div>';
+          }
+
           item.innerHTML = 
             '<div class="opinie-item-header">' +
               '<div class="opinie-item-meta">' +
@@ -408,8 +459,7 @@
               '<div class="opinie-flag-container">' +
                 '<button class="opinie-flag-btn" title="Opcje opinii">🏳</button>' +
                 '<div class="opinie-flag-dropdown" style="display: none;">' +
-                  '<div class="flag-option flag-report">Zgłoś</div>' +
-                  '<div class="flag-option flag-hide">Ukryj dla mnie</div>' +
+                  dropdownOptions +
                 '</div>' +
               '</div>' +
             '</div>' +
@@ -445,6 +495,44 @@
             rev.hiddenLocally = true;
             renderReviews();
           });
+
+          if (isOwner) {
+            item.querySelector(".flag-edit").addEventListener("click", () => {
+              dropdown.style.display = "none";
+              editingReviewId = rev.id;
+              
+              // Wypełniamy formularz danymi opinii do edycji
+              inputPos.value = rev.position || "";
+              inputTime.value = rev.time || "";
+              inputYear.value = rev.year || "";
+              inputOffered.value = rev.offered || "";
+              inputFeedback.value = rev.feedback || "";
+              charCount.innerText = inputFeedback.value.length;
+              
+              document.getElementById("form-main-title").innerText = "Edytuj swoją opinię";
+              submitBtn.innerText = "ZAPISZ ZMIANY";
+              
+              formContainer.style.display = "block";
+              listContainer.style.display = "none";
+              sortContainer.style.display = "none";
+              footer.style.display = "none";
+              widget.style.maxHeight = "620px";
+              validateForm();
+            });
+
+            item.querySelector(".flag-delete").addEventListener("click", async () => {
+              dropdown.style.display = "none";
+              if (confirm("Czy na pewno chcesz bezpowrotnie usunąć swoją opinię?")) {
+                const success = await deleteReviewFromDB(rev.id);
+                if (success) {
+                  reviews = await fetchReviews(employerName);
+                  renderReviews();
+                } else {
+                  alert("Nie udało się usunąć opinii. Spróbuj ponownie.");
+                }
+              }
+            });
+          }
 
           const userVotes = getStoredVotes();
 
@@ -508,6 +596,11 @@
 
       addBtn.addEventListener("click", (e) => {
         e.stopPropagation();
+        editingReviewId = null; // Tryb dodawania nowej
+        resetForm();
+        document.getElementById("form-main-title").innerText = "Dodaj opinię o rekrutacji";
+        submitBtn.innerText = "WYŚLIJ";
+        
         formContainer.style.display = "block";
         listContainer.style.display = "none";
         sortContainer.style.display = "none";
@@ -517,6 +610,7 @@
 
       cancelBtn.addEventListener("click", () => {
         resetForm();
+        editingReviewId = null;
         formContainer.style.display = "none";
         listContainer.style.display = "block";
         sortContainer.style.display = "flex";
@@ -527,6 +621,7 @@
       const charCount = document.getElementById("char-count");
 
       function getRemainingCooldown() {
+        if (editingReviewId) return 0; // Brak cooldownu przy edycji własnej opinii
         const lastSubmitTime = localStorage.getItem('pracuj_opinie_last_submit');
         if (!lastSubmitTime) return 0;
         
@@ -561,7 +656,7 @@
         if (cooldownSecs > 0) {
           submitBtn.innerText = "Odczekaj " + cooldownSecs + "s";
         } else if (submitBtn.innerText.startsWith("Odczekaj")) {
-          submitBtn.innerText = "WYŚLIJ";
+          submitBtn.innerText = editingReviewId ? "ZAPISZ ZMIANY" : "WYŚLIJ";
         }
       }
 
@@ -576,34 +671,53 @@
       });
 
       submitBtn.addEventListener("click", async () => {
-        if (submitBtn.disabled) return;
+  if (submitBtn.disabled) return;
 
-        const feedbackText = inputFeedback.value.trim();
+  const feedbackText = inputFeedback.value.trim();
+  const positionText = inputPos.value.trim();
 
-        if (containsBadWords(feedbackText)) {
-          alert("Twoja opinia zawiera niedozwolone słowa lub ich fragmenty. Prosimy o zachowanie kultury.");
-          return;
+  if (containsBadWords(feedbackText) || containsBadWords(positionText)) {
+    alert("Twoja opinia lub nazwa stanowiska zawiera niedozwolone słowa. Prosimy o zachowanie kultury.");
+    return;
+  }
+
+  submitBtn.innerText = "Zapisywanie...";
+  submitBtn.disabled = true;
+
+        let success = false;
+
+        if (editingReviewId) {
+          // Tryb edycji
+          const updateData = {
+            position: inputPos.value.trim(),
+            time: inputTime.value,
+            year: parseInt(inputYear.value),
+            offered: inputOffered.value,
+            feedback: feedbackText
+          };
+          success = await updateReviewInDB(editingReviewId, updateData);
+        } else {
+          // Tryb dodawania nowej
+          const newReviewData = {
+            employer_name: employerName.toLowerCase().trim(),
+            position: inputPos.value.trim(),
+            time: inputTime.value,
+            year: parseInt(inputYear.value),
+            offered: inputOffered.value,
+            feedback: feedbackText,
+            score: 0,
+            client_id: getClientId()
+          };
+          success = await sendReview(newReviewData);
+          if (success) {
+            localStorage.setItem('pracuj_opinie_last_submit', Date.now().toString());
+          }
         }
 
-        submitBtn.innerText = "Wysyłanie...";
-        submitBtn.disabled = true;
-
-        const newReviewData = {
-          employer_name: employerName.toLowerCase().trim(),
-          position: inputPos.value.trim(),
-          time: inputTime.value,
-          year: parseInt(inputYear.value),
-          offered: inputOffered.value,
-          feedback: feedbackText,
-          score: 0
-        };
-
-        const success = await sendReview(newReviewData);
         if (success) {
-          localStorage.setItem('pracuj_opinie_last_submit', Date.now().toString());
-          
           reviews = await fetchReviews(employerName);
           resetForm();
+          editingReviewId = null;
           renderReviews();
           formContainer.style.display = "none";
           listContainer.style.display = "block";
@@ -611,8 +725,8 @@
           footer.style.display = "flex";
           widget.style.maxHeight = "520px";
         } else {
-          alert("Wystąpił błąd podczas wysyłania opinii. Spróbuj ponownie.");
-          submitBtn.innerText = "WYŚLIJ";
+          alert("Wystąpił błąd podczas zapisywania opinii. Spróbuj ponownie.");
+          submitBtn.innerText = editingReviewId ? "ZAPISZ ZMIANY" : "WYŚLIJ";
           submitBtn.disabled = false;
         }
       });
