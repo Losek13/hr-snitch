@@ -61,8 +61,8 @@
       let rawName = "";
       
       const elAttr = document.querySelector('[data-scroll-id="employer-name"]') || document.querySelector('[data-test="employer-name"]');
-      if (elAttr && elAttr.innerText.trim()) {
-        rawName = elAttr.innerText;
+      if (elAttr && elAttr.textContent.trim()) {
+        rawName = elAttr.textContent;
       }
 
       if (!rawName || rawName.trim().length <= 1) {
@@ -93,10 +93,19 @@
 
     function getPositionName() {
       const elPos = document.querySelector('h1[data-test="text-positionName"]') || document.querySelector('h1');
-      if (elPos && elPos.innerText.trim()) {
-        return elPos.innerText.trim();
+      if (elPos && elPos.textContent.trim()) {
+        return elPos.textContent.trim();
       }
       return "brak podanego stanowiska";
+    }
+
+    // Bezpieczne konwertowanie statycznego szablonu HTML na elementy DOM bez użycia innerHTML
+    function createDOMFromHTML(htmlString) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlString, 'text/html');
+      const fragment = document.createDocumentFragment();
+      Array.from(doc.body.childNodes).forEach(node => fragment.appendChild(node));
+      return fragment;
     }
 
     async function fetchReviews(employerName) {
@@ -230,22 +239,51 @@
 
           const banner = document.createElement("div");
           banner.id = "pracuj-opinie-reminder-banner";
-          banner.innerHTML = 
-            '<div class="reminder-banner-title">⏳ Czas na opinię!</div>' +
-            '<div class="reminder-banner-text">Hej! Pamiętasz, że możesz wystawić opinię o przebiegu rekrutacji na stanowisko <strong>' + escapeHtml(reminder.position) + '</strong> w firmie <strong>' + escapeHtml(reminder.company) + '</strong>?</div>' +
-            '<div class="reminder-banner-actions">' +
-              '<a href="' + reminder.url + '" class="reminder-btn-action" id="reminder-go-btn">Wystaw opinię</a>' +
-              '<button type="button" class="reminder-btn-close" id="reminder-dismiss-btn">Później</button>' +
-            '</div>';
+
+          const titleDiv = document.createElement("div");
+          titleDiv.className = "reminder-banner-title";
+          titleDiv.textContent = "⏳ Czas na opinię!";
+
+          const textDiv = document.createElement("div");
+          textDiv.className = "reminder-banner-text";
+          textDiv.append(
+            "Hej! Pamiętasz, że możesz wystawić opinię o przebiegu rekrutacji na stanowisko ",
+            createStrongElement(reminder.position),
+            " w firmie ",
+            createStrongElement(reminder.company),
+            "?"
+          );
+
+          const actionsDiv = document.createElement("div");
+          actionsDiv.className = "reminder-banner-actions";
+
+          const goBtn = document.createElement("a");
+          goBtn.href = reminder.url;
+          goBtn.className = "reminder-btn-action";
+          goBtn.id = "reminder-go-btn";
+          goBtn.textContent = "Wystaw opinię";
+
+          const dismissBtn = document.createElement("button");
+          dismissBtn.type = "button";
+          dismissBtn.className = "reminder-btn-close";
+          dismissBtn.id = "reminder-dismiss-btn";
+          dismissBtn.textContent = "Później";
+
+          actionsDiv.appendChild(goBtn);
+          actionsDiv.appendChild(dismissBtn);
+
+          banner.appendChild(titleDiv);
+          banner.appendChild(textDiv);
+          banner.appendChild(actionsDiv);
 
           document.body.appendChild(banner);
 
-          document.getElementById("reminder-go-btn").addEventListener("click", () => {
+          goBtn.addEventListener("click", () => {
             localStorage.removeItem('pracuj_opinie_pending_reminder');
             banner.remove();
           });
 
-          document.getElementById("reminder-dismiss-btn").addEventListener("click", () => {
+          dismissBtn.addEventListener("click", () => {
             localStorage.removeItem('pracuj_opinie_pending_reminder');
             banner.remove();
           });
@@ -253,6 +291,12 @@
       } catch (e) {
         console.error("Błąd sprawdzania przypomnienia:", e);
       }
+    }
+
+    function createStrongElement(text) {
+      const el = document.createElement("strong");
+      el.textContent = text;
+      return el;
     }
 
     async function init() {
@@ -277,7 +321,7 @@
       const currentYear = new Date().getFullYear();
       let currentSortMode = "newest";
       let editingReviewId = null;
-      let selectedReminderWeeks = 1; // Domyślnie 1 tydzień
+      let selectedReminderWeeks = 1;
 
       const widget = document.createElement("div");
       widget.id = "pracuj-opinie-widget";
@@ -291,7 +335,8 @@
       headerLeft.className = "opinie-header-left";
       const titleSpan = document.createElement("span");
       titleSpan.className = "opinie-title";
-      titleSpan.innerHTML = "Opinie: <strong>" + escapeHtml(employerName) + "</strong>";
+      titleSpan.textContent = "Opinie: ";
+      titleSpan.appendChild(createStrongElement(employerName));
       headerLeft.appendChild(titleSpan);
 
       const headerRight = document.createElement("div");
@@ -300,12 +345,12 @@
       const badge = document.createElement("span");
       badge.id = "opinie-badge";
       badge.className = "opinie-badge";
-      badge.innerText = reviews.length;
+      badge.textContent = reviews.length;
 
       const minBtn = document.createElement("button");
       minBtn.id = "opinie-minimize-btn";
       minBtn.title = "Zwiń / Rozwiń";
-      minBtn.innerText = "▾";
+      minBtn.textContent = "▾";
 
       headerRight.appendChild(badge);
       headerRight.appendChild(minBtn);
@@ -319,12 +364,30 @@
 
       const sortContainer = document.createElement("div");
       sortContainer.className = "opinie-sort-container";
-      sortContainer.innerHTML = 
-        '<span class="opinie-sort-label">Sortuj:</span>' +
-        '<div class="opinie-tabs">' +
-          '<button type="button" class="opinie-tab-btn active" data-sort="newest">Od najnowszych</button>' +
-          '<button type="button" class="opinie-tab-btn" data-sort="best">Od najlepszych</button>' +
-        '</div>';
+      
+      const sortLabel = document.createElement("span");
+      sortLabel.className = "opinie-sort-label";
+      sortLabel.textContent = "Sortuj:";
+      
+      const tabsDiv = document.createElement("div");
+      tabsDiv.className = "opinie-tabs";
+      
+      const tabNewest = document.createElement("button");
+      tabNewest.type = "button";
+      tabNewest.className = "opinie-tab-btn active";
+      tabNewest.dataset.sort = "newest";
+      tabNewest.textContent = "Od najnowszych";
+
+      const tabBest = document.createElement("button");
+      tabBest.type = "button";
+      tabBest.className = "opinie-tab-btn";
+      tabBest.dataset.sort = "best";
+      tabBest.textContent = "Od najlepszych";
+
+      tabsDiv.appendChild(tabNewest);
+      tabsDiv.appendChild(tabBest);
+      sortContainer.appendChild(sortLabel);
+      sortContainer.appendChild(tabsDiv);
       body.appendChild(sortContainer);
 
       const listContainer = document.createElement("div");
@@ -340,12 +403,12 @@
 
       const formTitle = document.createElement("h4");
       formTitle.id = "form-main-title";
-      formTitle.innerText = "Dodaj opinię o rekrutacji";
+      formTitle.textContent = "Dodaj opinię o rekrutacji";
       formContainer.appendChild(formTitle);
 
       const createLabel = (text) => {
         const lbl = document.createElement("label");
-        lbl.innerText = text;
+        lbl.textContent = text;
         return lbl;
       };
 
@@ -364,7 +427,7 @@
       ["-- Wybierz --", "poniżej 1 tygodnia", "2-4 tygodnie", "1-2 miesiące", "powyżej 2 miesięcy"].forEach((opt, idx) => {
         const option = document.createElement("option");
         option.value = idx === 0 ? "" : opt;
-        option.innerText = opt;
+        option.textContent = opt;
         inputTime.appendChild(option);
       });
       formContainer.appendChild(inputTime);
@@ -375,24 +438,24 @@
       inputYear.className = "form-input";
       const defaultYearOpt = document.createElement("option");
       defaultYearOpt.value = "";
-      defaultYearOpt.innerText = "-- Wybierz rok --";
+      defaultYearOpt.textContent = "-- Wybierz rok --";
       inputYear.appendChild(defaultYearOpt);
       for (let y = currentYear; y >= currentYear - 4; y--) {
         const option = document.createElement("option");
         option.value = y;
-        option.innerText = y;
+        option.textContent = y;
         inputYear.appendChild(option);
       }
       formContainer.appendChild(inputYear);
 
-      formContainer.appendChild(createLabel("Czy zaoferowano Ci pracę? *"));
+      formContainer.appendChild(createLabel("Czy zaoferowano pracę? *"));
       const inputOffered = document.createElement("select");
       inputOffered.id = "form-offered";
       inputOffered.className = "form-input";
-      ["-- Wybierz --", "Tak - zaakceptowałem ofertę", "Tak - odrzuciłem ofertę", "Nie zaoferowano mi pracy", "Kontakt z rekruterem się urwał", "Wolę nie odpowiadać"].forEach((opt, idx) => {
+      ["-- Wybierz --", "tak - zaakceptowałem", "tak - odrzuciłem", "nie zaoferowano", "brak odpowiedzi", "Wolę nie odpowiadać"].forEach((opt, idx) => {
         const option = document.createElement("option");
         option.value = idx === 0 ? "" : opt;
-        option.innerText = opt;
+        option.textContent = opt;
         inputOffered.appendChild(option);
       });
       formContainer.appendChild(inputOffered);
@@ -403,12 +466,18 @@
       inputFeedback.className = "form-input";
       inputFeedback.rows = 3;
       inputFeedback.maxLength = 300;
-      inputFeedback.placeholder = "Opisz swoje wrażenia. Możesz napisać o wszystkim związanym z procesem rekrutacji!";
+      inputFeedback.placeholder = "Opisz swoje wrażenia...";
       formContainer.appendChild(inputFeedback);
 
       const counterDiv = document.createElement("div");
       counterDiv.style.cssText = "font-size: 10px; color: #666; text-align: right; margin-bottom: 4px;";
-      counterDiv.innerHTML = '<span id="char-count">0</span>/300';
+      
+      const charCountSpan = document.createElement("span");
+      charCountSpan.id = "char-count";
+      charCountSpan.textContent = "0";
+      
+      counterDiv.appendChild(charCountSpan);
+      counterDiv.append("/300");
       formContainer.appendChild(counterDiv);
 
       const formActions = document.createElement("div");
@@ -416,62 +485,97 @@
       const cancelBtn = document.createElement("button");
       cancelBtn.id = "form-cancel-btn";
       cancelBtn.type = "button";
-      cancelBtn.innerText = "Anuluj";
+      cancelBtn.textContent = "Anuluj";
       const submitBtn = document.createElement("button");
       submitBtn.id = "form-submit-btn";
       submitBtn.type = "button";
       submitBtn.disabled = true;
-      submitBtn.innerText = "WYŚLIJ";
+      submitBtn.textContent = "WYŚLIJ";
       formActions.appendChild(cancelBtn);
       formActions.appendChild(submitBtn);
       formContainer.appendChild(formActions);
 
       body.appendChild(formContainer);
 
-      // FORMULARZ USTAWIANIA PRZYPOMNIENIA (1 TYDZIEŃ DOMYŚLNIE ZAZNACZONY)
+      // FORMULARZ USTAWIANIA PRZYPOMNIENIA
       const reminderContainer = document.createElement("div");
       reminderContainer.id = "opinie-reminder-container";
       reminderContainer.className = "opinie-reminder-container";
       reminderContainer.style.display = "none";
 
-      reminderContainer.innerHTML = 
-        '<h4>Ustaw przypomnienie o wystawieniu opinii po procesie rekrutacji!</h4>' +
-        '<div class="reminder-subtitle-info">Powiadomienie pojawi się w lewym dolnym rogu okna, podczas przeglądania portalu.</div>' +
-        '<label>Wyświetl powiadomienie w przeglądarce za:</label>' +
-        '<div class="reminder-circles-wrapper">' +
-          '<button type="button" class="reminder-circle-btn active" data-val="1">1</button>' +
-          '<button type="button" class="reminder-circle-btn" data-val="2">2</button>' +
-          '<button type="button" class="reminder-circle-btn" data-val="3">3</button>' +
-          '<button type="button" class="reminder-circle-btn" data-val="4">4</button>' +
-          '<button type="button" class="reminder-circle-btn" data-val="5">5</button>' +
-          '<span class="reminder-label-text" id="reminder-unit-label">tydzień</span>' +
-        '</div>' +
-        '<div class="form-actions">' +
-          '<button type="button" id="reminder-cancel-btn">Anuluj</button>' +
-          '<button type="button" id="reminder-submit-btn">ZATWIERDŹ</button>' +
-        '</div>';
+      const remTitle = document.createElement("h4");
+      remTitle.textContent = "Ustaw przypomnienie o wystawieniu opinii po procesie rekrutacji!";
+      
+      const remSubtitle = document.createElement("div");
+      remSubtitle.className = "reminder-subtitle-info";
+      remSubtitle.textContent = "Powiadomienie pojawi się w lewym dolnym rogu okna, podczas przeglądania portalu.";
+
+      const remLabel = document.createElement("label");
+      remLabel.textContent = "Wyświetl powiadomienie w przeglądarce za:";
+
+      const circlesWrapper = document.createElement("div");
+      circlesWrapper.className = "reminder-circles-wrapper";
+
+      [1, 2, 3, 4, 5].forEach(num => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = num === 1 ? "reminder-circle-btn active" : "reminder-circle-btn";
+        btn.dataset.val = num;
+        btn.textContent = num;
+        circlesWrapper.appendChild(btn);
+      });
+
+      const unitLabelSpan = document.createElement("span");
+      unitLabelSpan.className = "reminder-label-text";
+      unitLabelSpan.id = "reminder-unit-label";
+      unitLabelSpan.textContent = "tydzień";
+      circlesWrapper.appendChild(unitLabelSpan);
+
+      const remActions = document.createElement("div");
+      remActions.className = "form-actions";
+
+      const remCancelBtn = document.createElement("button");
+      remCancelBtn.type = "button";
+      remCancelBtn.id = "reminder-cancel-btn";
+      remCancelBtn.textContent = "Anuluj";
+
+      const remSubmitBtn = document.createElement("button");
+      remSubmitBtn.type = "button";
+      remSubmitBtn.id = "reminder-submit-btn";
+      remSubmitBtn.textContent = "ZATWIERDŹ";
+
+      remActions.appendChild(remCancelBtn);
+      remActions.appendChild(remSubmitBtn);
+
+      reminderContainer.appendChild(remTitle);
+      reminderContainer.appendChild(remSubtitle);
+      reminderContainer.appendChild(remLabel);
+      reminderContainer.appendChild(circlesWrapper);
+      reminderContainer.appendChild(remActions);
 
       body.appendChild(reminderContainer);
 
-      // PASEK Z DWOMA PRZYCISKAMI W STOPCE
+      // STOPKA
       const footer = document.createElement("div");
       footer.id = "opinie-footer";
       footer.className = "opinie-footer";
 
-      const bellSvg = '<svg class="btn-icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="m9.625000000000002 71.63333333333334l22.916666666666668 22.916666666666668a17.583333333333336 17.583333333333336 0 0 1 -22.916666666666668 -22.916666666666668zm20.90416666666667 -63.38333333333334a4.166666666666667 4.166666666666667 0 0 0 -1.666666666666667 -8.166666666666668a44.537499999999994 44.537499999999994 0 0 0 -27.975000000000005 17.1875a4.166666666666667 4.166666666666667 0 0 0 6.695833333333334 4.9541666666666675a36.00416666666667 36.00416666666667 0 0 1 22.945833333333333 -13.975000000000001zm66.1375 58.5125a4.166666666666667 4.166666666666667 0 0 0 -4.9625 3.1750000000000003a35.99166666666667 35.99166666666667 0 0 1 -13.820833333333335 22.52916666666667a4.166666666666667 4.166666666666667 0 0 0 4.916666666666667 6.733333333333334a44.58333333333333 44.58333333333333 0 0 0 17.041666666666668 -27.470833333333335a4.166666666666667 4.166666666666667 0 0 0 -3.1750000000000003 -4.966666666666667zm-12.637500000000001 -44.900000000000006l6.416666666666667 -6.416666666666667a4.166666666666667 4.166666666666667 0 1 0 -5.891666666666667 -5.891666666666667l-6.425000000000001 6.425000000000001a35.233333333333334 35.233333333333334 0 0 0 -40.925 -2.0833333333333335l-22.916666666666668 14.166666666666668a20.941666666666666 20.941666666666666 0 0 0 -3.8000000000000003 32.62083333333334l28.995833333333334 28.995833333333334a20.941666666666666 20.941666666666666 0 0 0 32.6625 -3.858333333333334l15.000000000000002 -24.483333333333338a35.59583333333333 35.59583333333333 0 0 0 -3.1166666666666667 -39.475z"/></svg>';
-      const chatSvg = '<svg class="btn-icon" viewBox="0 0 100 100"><path d="M81.97916666666667 11.491666666666667A49.73333333333334 49.73333333333334 0 0 0 43.64166666666667 0.41666666666666674A50.000000000000014 50.000000000000014 0 0 0 50.07500000000001 100H79.16666666666667a20.858333333333338 20.858333333333338 0 0 0 20.833333333333336 -20.833333333333336V47.12083333333334l0 -0.2625A50.18333333333334 50.18333333333334 0 0 0 81.97916666666667 11.491666666666667zM33.333333333333336 29.166666666666668h16.666666666666668a4.166666666666667 4.166666666666667 0 0 1 0 8.333333333333334H33.333333333333336A4.166666666666667 4.166666666666667 0 0 1 33.333333333333336 29.166666666666668zm33.333333333333336 41.66666666666667H33.333333333333336a4.166666666666667 4.166666666666667 0 0 1 0 -8.333333333333334h33.333333333333336a4.166666666666667 4.166666666666667 0 0 1 0 8.333333333333334zm0 -16.666666666666668H33.333333333333336a4.166666666666667 4.166666666666667 0 0 1 0 -8.333333333333334h33.333333333333336a4.166666666666667 4.166666666666667 0 0 1 0 8.333333333333334z"/></svg>';
+      const bellSvgHtml = '<svg class="btn-icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="m9.625000000000002 71.63333333333334l22.916666666666668 22.916666666666668a17.583333333333336 17.583333333333336 0 0 1 -22.916666666666668 -22.916666666666668zm20.90416666666667 -63.38333333333334a4.166666666666667 4.166666666666667 0 0 0 -1.666666666666667 -8.166666666666668a44.537499999999994 44.537499999999994 0 0 0 -27.975000000000005 17.1875a4.166666666666667 4.166666666666667 0 0 0 6.695833333333334 4.9541666666666675a36.00416666666667 36.00416666666667 0 0 1 22.945833333333333 -13.975000000000001zm66.1375 58.5125a4.166666666666667 4.166666666666667 0 0 0 -4.9625 3.1750000000000003a35.99166666666667 35.99166666666667 0 0 1 -13.820833333333335 22.52916666666667a4.166666666666667 4.166666666666667 0 0 0 4.916666666666667 6.733333333333334a44.58333333333333 44.58333333333333 0 0 0 17.041666666666668 -27.470833333333335a4.166666666666667 4.166666666666667 0 0 0 -3.1750000000000003 -4.966666666666667zm-12.637500000000001 -44.900000000000006l6.416666666666667 -6.416666666666667a4.166666666666667 4.166666666666667 0 1 0 -5.891666666666667 -5.891666666666667l-6.425000000000001 6.425000000000001a35.233333333333334 35.233333333333334 0 0 0 -40.925 -2.0833333333333335l-22.916666666666668 14.166666666666668a20.941666666666666 20.941666666666666 0 0 0 -3.8000000000000003 32.62083333333334l28.995833333333334 28.995833333333334a20.941666666666666 20.941666666666666 0 0 0 32.6625 -3.858333333333334l15.000000000000002 -24.483333333333338a35.59583333333333 35.59583333333333 0 0 0 -3.1166666666666667 -39.475z"/></svg>';
+      const chatSvgHtml = '<svg class="btn-icon" viewBox="0 0 100 100"><path d="M81.97916666666667 11.491666666666667A49.73333333333334 49.73333333333334 0 0 0 43.64166666666667 0.41666666666666674A50.000000000000014 50.000000000000014 0 0 0 50.07500000000001 100H79.16666666666667a20.858333333333338 20.858333333333338 0 0 0 20.833333333333336 -20.833333333333336V47.12083333333334l0 -0.2625A50.18333333333334 50.18333333333334 0 0 0 81.97916666666667 11.491666666666667zM33.333333333333336 29.166666666666668h16.666666666666668a4.166666666666667 4.166666666666667 0 0 1 0 8.333333333333334H33.333333333333336A4.166666666666667 4.166666666666667 0 0 1 33.333333333333336 29.166666666666668zm33.333333333333336 41.66666666666667H33.333333333333336a4.166666666666667 4.166666666666667 0 0 1 0 -8.333333333333334h33.333333333333336a4.166666666666667 4.166666666666667 0 0 1 0 8.333333333333334zm0 -16.666666666666668H33.333333333333336a4.166666666666667 4.166666666666667 0 0 1 0 -8.333333333333334h33.333333333333336a4.166666666666667 4.166666666666667 0 0 1 0 8.333333333333334z"/></svg>';
 
       const remBtn = document.createElement("button");
       remBtn.id = "opinie-rem-btn";
       remBtn.className = "opinie-action-btn";
       remBtn.title = "Przypomnij o opinii";
-      remBtn.innerHTML = bellSvg + " Przypomnij";
+      remBtn.appendChild(createDOMFromHTML(bellSvgHtml));
+      remBtn.append(" Przypomnij");
 
       const addBtn = document.createElement("button");
       addBtn.id = "opinie-add-btn";
       addBtn.className = "opinie-action-btn";
       addBtn.title = "Dodaj opinię";
-      addBtn.innerHTML = chatSvg + " Dodaj opinię";
+      addBtn.appendChild(createDOMFromHTML(chatSvgHtml));
+      addBtn.append(" Dodaj opinię");
 
       footer.appendChild(remBtn);
       footer.appendChild(addBtn);
@@ -481,27 +585,25 @@
       document.body.appendChild(widget);
 
       const circleBtns = reminderContainer.querySelectorAll(".reminder-circle-btn");
-      const reminderSubmitBtn = reminderContainer.querySelector("#reminder-submit-btn");
-      const reminderCancelBtn = reminderContainer.querySelector("#reminder-cancel-btn");
       const unitLabel = reminderContainer.querySelector("#reminder-unit-label");
 
       circleBtns.forEach(btn => {
         btn.addEventListener("click", () => {
           circleBtns.forEach(b => b.classList.remove("active"));
           btn.classList.add("active");
-          selectedReminderWeeks = parseInt(btn.getAttribute("data-val"), 10);
+          selectedReminderWeeks = parseInt(btn.dataset.val, 10);
           
           if (selectedReminderWeeks === 1) {
-            unitLabel.innerText = "tydzień";
+            unitLabel.textContent = "tydzień";
           } else if (selectedReminderWeeks === 5) {
-            unitLabel.innerText = "tygodni";
+            unitLabel.textContent = "tygodni";
           } else {
-            unitLabel.innerText = "tygodnie";
+            unitLabel.textContent = "tygodnie";
           }
         });
       });
 
-      reminderSubmitBtn.addEventListener("click", () => {
+      remSubmitBtn.addEventListener("click", () => {
         if (!selectedReminderWeeks) return;
 
         const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -528,11 +630,11 @@
         footer.style.display = "flex";
       });
 
-      reminderCancelBtn.addEventListener("click", () => {
+      remCancelBtn.addEventListener("click", () => {
         circleBtns.forEach(b => b.classList.remove("active"));
         reminderContainer.querySelector('.reminder-circle-btn[data-val="1"]').classList.add("active");
         selectedReminderWeeks = 1;
-        unitLabel.innerText = "tydzień";
+        unitLabel.textContent = "tydzień";
 
         reminderContainer.style.display = "none";
         listContainer.style.display = "block";
@@ -545,7 +647,7 @@
         circleBtns.forEach(b => b.classList.remove("active"));
         reminderContainer.querySelector('.reminder-circle-btn[data-val="1"]').classList.add("active");
         selectedReminderWeeks = 1;
-        unitLabel.innerText = "tydzień";
+        unitLabel.textContent = "tydzień";
 
         reminderContainer.style.display = "block";
         formContainer.style.display = "none";
@@ -559,19 +661,19 @@
         btn.addEventListener("click", () => {
           tabButtons.forEach(b => b.classList.remove("active"));
           btn.classList.add("active");
-          currentSortMode = btn.getAttribute("data-sort");
+          currentSortMode = btn.dataset.sort;
           renderReviews();
         });
       });
 
       function renderReviews() {
-        listContainer.innerHTML = "";
-        badge.innerText = reviews.length;
+        listContainer.textContent = "";
+        badge.textContent = reviews.length;
 
         if (reviews.length === 0) {
           const empty = document.createElement("div");
           empty.className = "opinie-empty";
-          empty.innerText = "Brak opinii dla tej firmy. Bądź pierwszy!";
+          empty.textContent = "Brak opinii dla tej firmy. Bądź pierwszy!";
           listContainer.appendChild(empty);
           return;
         }
@@ -601,59 +703,143 @@
           const item = document.createElement("div");
           item.className = "opinie-item";
 
-          const posHtml = rev.position ? '<div class="opinie-item-pos">Stanowisko: <strong>' + escapeHtml(rev.position) + '</strong></div>' : "";
-          const scoreVal = rev.score || 0;
-          const scoreFormatted = scoreVal > 0 ? "+" + scoreVal : "" + scoreVal;
-          const plusActiveClass = rev.userVote === 'plus' ? 'vote-active' : '';
-          const minusActiveClass = rev.userVote === 'minus' ? 'vote-active' : '';
-          const formattedDate = formatDateTime(rev.created_at);
+          // HEADER OPINII
+          const itemHeader = document.createElement("div");
+          itemHeader.className = "opinie-item-header";
 
-          let scoreClass = "";
-          if (scoreVal < 0) {
-            scoreClass = "score-negative";
-          } else if (scoreVal > 0) {
-            scoreClass = "score-positive";
+          const metaDiv = document.createElement("div");
+          metaDiv.className = "opinie-item-meta";
+
+          const yearSpan = document.createElement("span");
+          yearSpan.className = "meta-element";
+          yearSpan.title = "Rok rekrutacji";
+          yearSpan.append("📅 ", createStrongElement(rev.year));
+
+          const timeSpan = document.createElement("span");
+          timeSpan.className = "meta-element";
+          timeSpan.title = "Czas rekrutacji";
+          timeSpan.append("⏱ ", createStrongElement(rev.time));
+
+          metaDiv.appendChild(yearSpan);
+          metaDiv.appendChild(document.createTextNode(" "));
+          metaDiv.appendChild(timeSpan);
+
+          const formattedDate = formatDateTime(rev.created_at);
+          if (formattedDate) {
+            const dateSpan = document.createElement("span");
+            dateSpan.className = "meta-element";
+            dateSpan.title = "Data dodania opinii";
+            dateSpan.style.cssText = "color: #888; font-size: 10px;";
+            dateSpan.textContent = `🕒 ${formattedDate}`;
+            metaDiv.appendChild(document.createTextNode(" "));
+            metaDiv.appendChild(dateSpan);
           }
+
+          const flagContainer = document.createElement("div");
+          flagContainer.className = "opinie-flag-container";
+
+          const flagBtn = document.createElement("button");
+          flagBtn.className = "opinie-flag-btn";
+          flagBtn.title = "Opcje opinii";
+          flagBtn.textContent = "🏳";
+
+          const dropdown = document.createElement("div");
+          dropdown.className = "opinie-flag-dropdown";
+          dropdown.style.display = "none";
+
+          const optReport = document.createElement("div");
+          optReport.className = "flag-option flag-report";
+          optReport.textContent = "Zgłoś";
+
+          const optHide = document.createElement("div");
+          optHide.className = "flag-option flag-hide";
+          optHide.textContent = "Ukryj dla mnie";
+
+          dropdown.appendChild(optReport);
+          dropdown.appendChild(optHide);
 
           const isOwner = rev.client_id === currentClient;
+          let optEdit, optDelete;
 
-          let dropdownOptions = '<div class="flag-option flag-report">Zgłoś</div>' +
-                                '<div class="flag-option flag-hide">Ukryj dla mnie</div>';
-          
           if (isOwner) {
-            dropdownOptions += '<div class="flag-option flag-edit" style="color: #8b0020; font-weight: bold;">Edytuj</div>' +
-                               '<div class="flag-option flag-delete" style="color: #dc3545; font-weight: bold;">Usuń</div>';
+            optEdit = document.createElement("div");
+            optEdit.className = "flag-option flag-edit";
+            optEdit.style.cssText = "color: #8b0020; font-weight: bold;";
+            optEdit.textContent = "Edytuj";
+
+            optDelete = document.createElement("div");
+            optDelete.className = "flag-option flag-delete";
+            optDelete.style.cssText = "color: #dc3545; font-weight: bold;";
+            optDelete.textContent = "Usuń";
+
+            dropdown.appendChild(optEdit);
+            dropdown.appendChild(optDelete);
           }
 
-          item.innerHTML = 
-            '<div class="opinie-item-header">' +
-              '<div class="opinie-item-meta">' +
-                '<span class="meta-element" title="Rok rekrutacji">📅 <strong>' + rev.year + '</strong></span> ' +
-                '<span class="meta-element" title="Czas rekrutacji">⏱ <strong>' + escapeHtml(rev.time) + '</strong></span>' +
-                (formattedDate ? '<span class="meta-element" title="Data dodania opinii" style="color: #888; font-size: 10px;">🕒 ' + formattedDate + '</span>' : '') +
-              '</div>' +
-              '<div class="opinie-flag-container">' +
-                '<button class="opinie-flag-btn" title="Opcje opinii">🏳</button>' +
-                '<div class="opinie-flag-dropdown" style="display: none;">' +
-                  dropdownOptions +
-                '</div>' +
-              '</div>' +
-            '</div>' +
-            posHtml +
-            '<div class="opinie-item-status">Oferta: <strong>' + escapeHtml(rev.offered) + '</strong></div>' +
-            '<div class="opinie-item-text">' + escapeHtml(rev.feedback) + '</div>' +
-            '<div class="opinie-item-footer">' +
-              '<div class="opinie-score ' + scoreClass + '">' +
-                'Ocena: <span class="score-val">' + scoreFormatted + '</span>' +
-              '</div>' +
-              '<div class="opinie-vote-btns">' +
-                '<button class="btn-vote vote-plus ' + plusActiveClass + '" title="Głosuj na plus">+</button>' +
-                '<button class="btn-vote vote-minus ' + minusActiveClass + '" title="Głosuj na minus">-</button>' +
-              '</div>' +
-            '</div>';
+          flagContainer.appendChild(flagBtn);
+          flagContainer.appendChild(dropdown);
 
-          const plusBtn = item.querySelector(".vote-plus");
-          const minusBtn = item.querySelector(".vote-minus");
+          itemHeader.appendChild(metaDiv);
+          itemHeader.appendChild(flagContainer);
+          item.appendChild(itemHeader);
+
+          // STANOWISKO
+          if (rev.position) {
+            const posDiv = document.createElement("div");
+            posDiv.className = "opinie-item-pos";
+            posDiv.append("Stanowisko: ", createStrongElement(rev.position));
+            item.appendChild(posDiv);
+          }
+
+          // OFERTA
+          const statusDiv = document.createElement("div");
+          statusDiv.className = "opinie-item-status";
+          statusDiv.append("Oferta: ", createStrongElement(rev.offered));
+          item.appendChild(statusDiv);
+
+          // TREŚĆ
+          const textDiv = document.createElement("div");
+          textDiv.className = "opinie-item-text";
+          textDiv.textContent = rev.feedback;
+          item.appendChild(textDiv);
+
+          // FOOTER OPINII (OCENA I GŁOSY)
+          const itemFooter = document.createElement("div");
+          itemFooter.className = "opinie-item-footer";
+
+          const scoreVal = rev.score || 0;
+          const scoreFormatted = scoreVal > 0 ? "+" + scoreVal : "" + scoreVal;
+          let scoreClass = "";
+          if (scoreVal < 0) scoreClass = "score-negative";
+          else if (scoreVal > 0) scoreClass = "score-positive";
+
+          const scoreDiv = document.createElement("div");
+          scoreDiv.className = `opinie-score ${scoreClass}`.trim();
+          scoreDiv.append("Ocena: ");
+          const scoreSpan = document.createElement("span");
+          scoreSpan.className = "score-val";
+          scoreSpan.textContent = scoreFormatted;
+          scoreDiv.appendChild(scoreSpan);
+
+          const voteBtnsDiv = document.createElement("div");
+          voteBtnsDiv.className = "opinie-vote-btns";
+
+          const plusBtn = document.createElement("button");
+          plusBtn.className = `btn-vote vote-plus ${rev.userVote === 'plus' ? 'vote-active' : ''}`.trim();
+          plusBtn.title = "Głosuj na plus";
+          plusBtn.textContent = "+";
+
+          const minusBtn = document.createElement("button");
+          minusBtn.className = `btn-vote vote-minus ${rev.userVote === 'minus' ? 'vote-active' : ''}`.trim();
+          minusBtn.title = "Głosuj na minus";
+          minusBtn.textContent = "-";
+
+          voteBtnsDiv.appendChild(plusBtn);
+          voteBtnsDiv.appendChild(minusBtn);
+
+          itemFooter.appendChild(scoreDiv);
+          itemFooter.appendChild(voteBtnsDiv);
+          item.appendChild(itemFooter);
 
           if (isOwner) {
             plusBtn.disabled = true;
@@ -666,28 +852,26 @@
             minusBtn.title = "Nie możesz głosować na własną opinię";
           }
 
-          const flagBtn = item.querySelector(".opinie-flag-btn");
-          const dropdown = item.querySelector(".opinie-flag-dropdown");
           flagBtn.addEventListener("click", (e) => {
             e.stopPropagation();
             document.querySelectorAll(".opinie-flag-dropdown").forEach(el => el.style.display = "none");
             dropdown.style.display = dropdown.style.display === "none" ? "block" : "none";
           });
 
-          item.querySelector(".flag-report").addEventListener("click", () => {
+          optReport.addEventListener("click", () => {
             dropdown.style.display = "none";
             sendReportToDB(rev.id);
             alert("Dziękujemy! Zgłoszenie zostało wysłane do weryfikacji.");
           });
 
-          item.querySelector(".flag-hide").addEventListener("click", () => {
+          optHide.addEventListener("click", () => {
             dropdown.style.display = "none";
             rev.hiddenLocally = true;
             renderReviews();
           });
 
           if (isOwner) {
-            item.querySelector(".flag-edit").addEventListener("click", () => {
+            optEdit.addEventListener("click", () => {
               dropdown.style.display = "none";
               editingReviewId = rev.id;
               
@@ -696,10 +880,10 @@
               inputYear.value = rev.year || "";
               inputOffered.value = rev.offered || "";
               inputFeedback.value = rev.feedback || "";
-              charCount.innerText = inputFeedback.value.length;
+              charCountSpan.textContent = inputFeedback.value.length;
               
-              document.getElementById("form-main-title").innerText = "Edytuj swoją opinię";
-              submitBtn.innerText = "ZAPISZ ZMIANY";
+              document.getElementById("form-main-title").textContent = "Edytuj swoją opinię";
+              submitBtn.textContent = "ZAPISZ ZMIANY";
               
               formContainer.style.display = "block";
               reminderContainer.style.display = "none";
@@ -709,7 +893,7 @@
               validateForm();
             });
 
-            item.querySelector(".flag-delete").addEventListener("click", async () => {
+            optDelete.addEventListener("click", async () => {
               dropdown.style.display = "none";
               if (confirm("Czy na pewno chcesz bezpowrotnie usunąć swoją opinię?")) {
                 const success = await deleteReviewFromDB(rev.id);
@@ -785,11 +969,11 @@
         if (widget.classList.contains("widget-collapsed")) {
           widget.classList.remove("widget-collapsed");
           widget.classList.add("widget-expanded");
-          minBtn.innerText = "▾";
+          minBtn.textContent = "▾";
         } else {
           widget.classList.remove("widget-expanded");
           widget.classList.add("widget-collapsed");
-          minBtn.innerText = "▴";
+          minBtn.textContent = "▴";
         }
       });
 
@@ -797,8 +981,8 @@
         e.stopPropagation();
         editingReviewId = null;
         resetForm();
-        document.getElementById("form-main-title").innerText = "Dodaj opinię o rekrutacji";
-        submitBtn.innerText = "WYŚLIJ";
+        document.getElementById("form-main-title").textContent = "Dodaj opinię o rekrutacji";
+        submitBtn.textContent = "WYŚLIJ";
         
         formContainer.style.display = "block";
         reminderContainer.style.display = "none";
@@ -817,8 +1001,6 @@
         footer.style.display = "flex";
       });
 
-      const charCount = document.getElementById("char-count");
-
       function getRemainingCooldown() {
         if (editingReviewId) return 0;
         const lastSubmitTime = localStorage.getItem('pracuj_opinie_last_submit');
@@ -834,8 +1016,7 @@
       }
 
       inputFeedback.addEventListener("input", () => {
-        const len = inputFeedback.value.length;
-        charCount.innerText = len;
+        charCountSpan.textContent = inputFeedback.value.length;
         validateForm();
       });
 
@@ -853,9 +1034,9 @@
         submitBtn.disabled = !isValid;
         
         if (cooldownSecs > 0) {
-          submitBtn.innerText = "Odczekaj " + cooldownSecs + "s";
-        } else if (submitBtn.innerText.startsWith("Odczekaj")) {
-          submitBtn.innerText = editingReviewId ? "ZAPISZ ZMIANY" : "WYŚLIJ";
+          submitBtn.textContent = "Odczekaj " + cooldownSecs + "s";
+        } else if (submitBtn.textContent.startsWith("Odczekaj")) {
+          submitBtn.textContent = editingReviewId ? "ZAPISZ ZMIANY" : "WYŚLIJ";
         }
       }
 
@@ -880,7 +1061,7 @@
           return;
         }
 
-        submitBtn.innerText = "Zapisywanie...";
+        submitBtn.textContent = "Zapisywanie...";
         submitBtn.disabled = true;
 
         let success = false;
@@ -929,7 +1110,7 @@
           footer.style.display = "flex";
         } else {
           alert("Wystąpił błąd podczas zapisywania opinii. Spróbuj ponownie.");
-          submitBtn.innerText = editingReviewId ? "ZAPISZ ZMIANY" : "WYŚLIJ";
+          submitBtn.textContent = editingReviewId ? "ZAPISZ ZMIANY" : "WYŚLIJ";
           submitBtn.disabled = false;
         }
       });
@@ -940,17 +1121,12 @@
         inputYear.value = "";
         inputOffered.value = "";
         inputFeedback.value = "";
-        charCount.innerText = "0";
-        submitBtn.innerText = "WYŚLIJ";
+        charCountSpan.textContent = "0";
+        submitBtn.textContent = "WYŚLIJ";
         submitBtn.disabled = true;
       }
 
       renderReviews();
-    }
-
-    function escapeHtml(str) {
-      if (!str) return "";
-      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
 
     let lastHref = location.href;
@@ -979,7 +1155,7 @@
   async function fetchUserVotesFromDB() {
     try {
       const clientId = getClientId();
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/votes?client_id=eq.${clientId}&select=review_id,vote_type`, {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/votes?client_id=${clientId}&select=review_id,vote_type`, {
         headers: {
           "apikey": SUPABASE_ANON_KEY,
           "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
